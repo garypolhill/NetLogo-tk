@@ -663,10 +663,10 @@ class Experiment:
         experiments = []
         if str == None or str.strip() == "":
             return []
-        xml = xml.XML(str)
-        if xml.tag != "experiments":
-            raise BehaviorSpaceXMLError(file_name, "experiments", xml.tag)
-        for exp in xml:
+        xmlstr = xml.XML(str)
+        if xmlstr.tag != "experiments":
+            raise BehaviorSpaceXMLError(file_name, "experiments", xmlstr.tag)
+        for exp in xmlstr:
             if exp.tag != "experiment":
                 raise BehaviorSpaceXMLError(file_name, "experiment", exp.tag)
             repetitions = 1
