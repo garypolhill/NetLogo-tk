@@ -89,7 +89,11 @@ foreach my $csv_file (@csv_files) {
   foreach my $datum (@data) {
     print SQL "insert into $table_name (";
     my @keys = sort { $a cmp $b } keys %$datum;
-    print SQL join(", ", @keys), ") VALUES (";
+    my @sqlkeys;
+    for(my $i = 0; $i <= $#keys; $i++) {
+      $sqlkeys[$i] = &to_sql_var($keys[$i]);
+    }
+    print SQL join(", ", @sqlkeys), ") VALUES (";
     for(my $i = 0; $i <= $#keys; $i++) {
       if(!defined($types{$keys[$i]})) {
 	die "Field $keys[$i] in file $csv_files[$file_no - 1] is not present ",
