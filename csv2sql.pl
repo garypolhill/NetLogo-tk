@@ -12,6 +12,7 @@ use strict;
 my $DB;
 my $tablespace;
 my $netlogo = 0;
+my $merge_table;
 my $MAX_BOOL_CHAR = 8;	# Big enough for true/false and to be a power of two
 my $MAX_INT_CHAR = 32;		# Big enough for a +/- long which will have 19
 my $MAX_REAL_CHAR = 64;		# Big enough for a quad double +-X.30chrE+-5chr
@@ -27,6 +28,9 @@ while($ARGV[0] =~ /^-/) {
   }
   elsif($opt eq "-netlogo-table") {
     $netlogo = 6;
+  }
+  elsif($opt eq "-merge") {
+    $merge_table = shift(@ARGV);
   }
   else {
     die "Option not recognized $opt\n";
@@ -54,32 +58,43 @@ if(defined($tablespace)) {
   print SQL "create tablespace \'$tablespace\';\n";
 }
 
+my $file_no = 0;
+my %types;
+my @all_keys;
+
 foreach my $csv_file (@csv_files) {
+  $file_no++;
   my @data = csv::read_csv($csv_file, $netlogo);
 
-  my $table_name = $csv_file;
+  my $table_name = (defined($merge_table) ? $merge_table : $csv_file);
   $table_name =~ s/\.csv$//i;
   $table_name = &to_sql_var($table_name);
 
-  print SQL "create table if not exists $table_name (\n";
+  if(!defined($merge_table) || $file_no == 1) {
+    print SQL "create table if not exists $table_name (\n";
 
-  my %types = &check_sql_types(\@data);
+    %types = &check_sql_types(\@data);
 
-  my @all_keys = sort { $a cmp $b } keys(%types);
+    @all_keys = sort { $a cmp $b } keys(%types);
 
-  for(my $i = 0; $i <= $#all_keys; $i++) {
-    print SQL "  ", &to_sql_var($all_keys[$i]), " ", $types{$all_keys[$i]};
-    print SQL "," if $i < $#all_keys;
-    print SQL "\n";
+    for(my $i = 0; $i <= $#all_keys; $i++) {
+      print SQL "  ", &to_sql_var($all_keys[$i]), " ", $types{$all_keys[$i]};
+      print SQL "," if $i < $#all_keys;
+      print SQL "\n";
+    }
+
+    print SQL ");\n";
   }
-
-  print SQL ");\n";
 
   foreach my $datum (@data) {
     print SQL "insert into $table_name (";
     my @keys = sort { $a cmp $b } keys %$datum;
     print SQL join(", ", @keys), ") VALUES (";
     for(my $i = 0; $i <= $#keys; $i++) {
+      if(!defined($types{$keys[$i]})) {
+	die "Field $keys[$i] in file $csv_files[$file_no - 1] is not present ",
+	  "in file $csv_files[0]: merge failed\n";
+      }
       print SQL ", " if $i > 0;
       if($types{$keys[$i]} =~ /^varchar/) {
 	print SQL "\'$$datum{$keys[$i]}\'";
