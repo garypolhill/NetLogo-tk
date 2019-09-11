@@ -3,10 +3,10 @@ Toolkit for NetLogo (various scripts)
 
 This repository contains a series of scripts to help with analysing and processing output from NetLogo:
 
-1. (csv2sql.pl)[#csv2sqk.pl] -- generic script to convert CSV files to SQL
-2. (dotworld.pl)[#dotworld.pl] -- script to create a GraphViz compatible DOT file for drawing networks from the output of `export-world`
-3. (netlogo2R.pl)[#netlogo2R.pl] -- script to convert NetLogo CSV output to R-compatible CSV
-4. (nlogo.py)[#nlogo.py] -- Python (2.7) script to mess around with NetLogo models
+1. [`csv2sql.pl`](#csv2sqk.pl) -- generic script to convert CSV files to SQL
+2. [`dotworld.pl`](#dotworld.pl) -- script to create a GraphViz compatible DOT file for drawing networks from the output of `export-world`
+3. [`netlogo2R.pl`](#netlogo2R.pl) -- script to convert NetLogo CSV output to R-compatible CSV
+4. [`nlogo.py`](#nlogo.py) -- Python (2.7) script to mess around with NetLogo models
 
 ## csv2sql.pl
 Perl script converting generic CSV files to SQL. Usage:
@@ -23,7 +23,7 @@ Options:
   `-merge <table name>` Creates one table, using fields from the header line of the first CSV file. All subsequent CSV files are expected to only have fields belonging to the set of fields in the first CSV file -- if this does not apply, an exception will be generated.
 
 ## dotworld.pl
-Perl script creating a DOT graph (for graphviz)[https://www.graphviz.org/] of a network of agents from the output of `export-world` in NetLogo. Usage:
+Perl script creating a DOT graph for [graphviz](https://www.graphviz.org/) of a network of agents from the output of `export-world` in NetLogo. Usage:
 
 `./dotworld.pl -nodata {-label <breed> <var>} <DOT file> <world file> <start node var>=<start node value> <link breeds...>`
 
