@@ -1229,6 +1229,8 @@ csv="$wd/x-$JOB_ID-table.csv"
 #$ -cwd
 #$ -t 1-{nsamp}
 #$ -pe smp {threads}
+#$ -j y
+#$ -o /dev/null
 printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
 printf -v BATCH_NO "%0{batchsize}d" $(expr $SGE_TASK_ID / {maxbatch})
 export JAVA_HOME="{java_home}"
