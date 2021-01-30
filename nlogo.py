@@ -1,4 +1,4 @@
-#!/usr/bin/python
+#!/usr/bin/python3
 """nlogo.py
 This module contains classes for reading and working with a NetLogo model.
 Run from the command line, it can be used to:
@@ -69,7 +69,7 @@ Other potentially useful tools (for future implementation)
 #
 # You should have received a copy of the GNU General Public Licence
 # along with this program.  If not, see <https://www.gnu.org/licences/>.
-__version__ = "0.1"
+__version__ = "0.2"
 __author__ = "Gary Polhill"
 
 # Imports
@@ -317,7 +317,7 @@ class Plot(Output):
         plot = Plot(left, right, top, bottom, display, xaxis, yaxis,
                     xmin, xmax, ymin, ymax, autoplot_on, legend_on,
                     codes[0][1:-1], codes[1][0:-2])
-        if(fp.readline().strip() == "PENS"):
+        if fp.readline().strip() == "PENS":
             penstr = fp.readline().strip()
             while penstr != '':
                 plot.addPen(Pen.parse(penstr))
@@ -827,24 +827,50 @@ class Experiment:
         fp.write(u"</experiments>\n")
 
     @staticmethod
-    def writeExperiments(file_name, expts):
+    def writeExperiments(file_name, expts, max_size = 10000, max_batch = 5000):
         """
         Save an array of experiments as an XML file
         """
-        try:
-            fp = io.open(file_name, "w")
-        except IOError as e:
-            sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
-            return False
+        if len(expts) <= max_size:
+            try:
+                fp = io.open(file_name, "w")
+            except IOError as e:
+                sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
+                return False
 
-        Experiment.writeExperimentHeader(fp)
+                Experiment.writeExperimentHeader(fp)
 
-        for expt in expts:
-            expt.writeExperimentDetails(fp)
+                for expt in expts:
+                    expt.writeExperimentDetails(fp)
 
-        Experiment.writeExperimentFooter(fp)
+                Experiment.writeExperimentFooter(fp)
+                fp.close()
 
-        fp.close()
+        else:
+            n_batch = math.ceil(len(expts) / max_batch)
+            for batch in range(0, n_batch):
+                batch_str = str.format("{:0%dd}"%(1 + int(math.log10(float(n_batch)))), batch)
+                batch_file = file_name[0:(len(file_name) - 4)] + "-" + batch_str + ".xml"
+
+                try:
+                    fp = io.open(batch_file, "w")
+                except IOError as e:
+                    sys.stderr.write("Error creating file %s: %s\n"%(batch_file, e.strerror))
+                    return False
+
+                Experiment.writeExperimentHeader(fp)
+
+                batch_min = batch * max_batch
+                batch_max = batch_min + max_batch
+                if batch_max > len(expts):
+                    batch_max = len(expts)
+
+                for expt in expts[batch_min:batch_max]:
+                    expt.writeExperimentDetails(fp)
+
+                Experiment.writeExperimentFooter(fp)
+                fp.close()
+
         return True
 
     def writeExperimentDetails(self, fp):
@@ -1095,11 +1121,11 @@ class NetlogoModel:
 
     def printExperiments(self):
         if len(self.behav):
-            print "There are no experiments"
+            print("There are no experiments")
         else:
-            print "Experiments:"
+            print("Experiments:")
             for expt in self.behav:
-                print "\t" + expt.name
+                print("\t" + expt.name)
 
 class Sample:
     def __init__(self, param, datatype, setting, minimum, maximum):
@@ -1162,7 +1188,7 @@ if __name__ == "__main__":
     model = NetlogoModel.read(nlogo)
     if(model == False):
         sys.exit(1)
-    print "Read " + nlogo
+    print("Read " + nlogo)
     cmd = sys.argv[2]
     if cmd == 'param':
         model.writeParameters(sys.argv[3])
@@ -1172,13 +1198,14 @@ if __name__ == "__main__":
         samples = Sample.read(sys.argv[3], model.getParameters())
         expt = Experiment.fromWidgets(model.widgets, "x", int(sys.argv[4]))
         expts = expt.withNSamples(samples, int(sys.argv[5]), True)
-        Experiment.writeExperiments(sys.argv[6], expts)
+        Experiment.writeExperiments(sys.argv[6], expts, 10000, 5000)
         if cmd == 'montq':
             try:
                 fp = io.open(sys.argv[7], "w")
             except IOError as e:
                 sys.stderr.write("Error creating file %s: %s\n"%(sys.argv[7], e.strerror))
-            fp.write(u'''#!/bin/sh
+            if int(sys.argv[5]) <= 10000:
+                fp.write(u'''#!/bin/sh
 #$ -cwd
 #$ -t 1-{nsamp}
 #$ -pe smp {threads}
@@ -1190,15 +1217,43 @@ xml="$wd/{xml}"
 xpt="x-$JOB_ID"
 out="$wd/x-$JOB_ID.out"
 csv="$wd/x-$JOB_ID-table.csv"
-"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads {threads} --table "$csv" > "$out" 2>&1
-            '''.format(nsamp = int(sys.argv[5]),
+"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads 1 --table "$csv" > "$out" 2>&1
+                '''.format(nsamp = int(sys.argv[5]),
                         size = (1 + int(math.log10(float(sys.argv[5])))), threads = 2,
                         java_home = os.getenv('JAVA_HOME', '/usr/bin/java'),
-                        nlogo_home = os.getenv('NETLOGO_HOME', '/Applications/NetLogo 6.0.4'),
-                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/Applications/NetLogo 6.0.4/netlogo-headless.sh'),
+                        nlogo_home = os.getenv('NETLOGO_HOME', '/Applications/NetLogo 6.2.0'),
+                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/Applications/NetLogo 6.2.0/netlogo-headless.sh'),
+                        xml = sys.argv[6], model = nlogo))
+            else:
+                fp.write(u'''#!/bin/sh
+#$ -cwd
+#$ -t 1-{nsamp}
+#$ -pe smp {threads}
+printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
+printf -v BATCH_NO "%0{batchsize}d" $(expr $SGE_TASK_ID / {maxbatch})
+export JAVA_HOME="{java_home}"
+wd=`pwd`
+cd "{nlogo_home}"
+xml="$wd/`echo '{xml}' | sed -e 's/.xml$//'`"
+xml="$xml-$BATCH_NO.xml"
+dir="`echo $xml | sed -e 's/.xml$//'`"
+test -d "$dir" || mkdir "$dir"
+xpt="x-$JOB_ID"
+out="$wd/$dir/x-$JOB_ID.out"
+csv="$wd/$dir/x-$JOB_ID-table.csv"
+"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
+test -e "$xpt.csv" && mv "$xpt.csv" "$dir"
+                '''.format(nsamp = int(sys.argv[5]),
+                        size = (1 + int(math.log10(float(sys.argv[5])))),
+                        batchsize = (1 + int(math.log10(float(sys.argv[5]) / 5000.0))),
+                        maxbatch = 5000,
+                        threads = 2, nlogo_threads = 1,
+                        java_home = os.getenv('JAVA_HOME', '/usr/bin/java'),
+                        nlogo_home = os.getenv('NETLOGO_HOME', '/Applications/NetLogo 6.2.0'),
+                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/Applications/NetLogo 6.2.0/netlogo-headless.sh'),
                         xml = sys.argv[6], model = nlogo))
             fp.close()
-            os.chmod(sys.argv[7], 0775)
+            os.chmod(sys.argv[7], 0o775)
     else:
         sys.stderr.write("Command \"%s\" not recognized\n"%(cmd))
     sys.exit(0)
