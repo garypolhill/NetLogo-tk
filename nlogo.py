@@ -1220,9 +1220,9 @@ csv="$wd/x-$JOB_ID-table.csv"
 "{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads 1 --table "$csv" > "$out" 2>&1
                 '''.format(nsamp = int(sys.argv[5]),
                         size = (1 + int(math.log10(float(sys.argv[5])))), threads = 2,
-                        java_home = os.getenv('JAVA_HOME', '/usr/bin/java'),
-                        nlogo_home = os.getenv('NETLOGO_HOME', '/Applications/NetLogo 6.2.0'),
-                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/Applications/NetLogo 6.2.0/netlogo-headless.sh'),
+                        java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
+                        nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
+                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
                         xml = sys.argv[6], model = nlogo))
             else:
                 fp.write(u'''#!/bin/sh
@@ -1241,18 +1241,18 @@ xml="$xml-$BATCH_NO.xml"
 dir="`echo $xml | sed -e 's/.xml$//'`"
 test -d "$dir" || mkdir "$dir"
 xpt="x-$JOB_ID"
-out="$wd/$dir/x-$JOB_ID.out"
-csv="$wd/$dir/x-$JOB_ID-table.csv"
+out="$dir/x-$JOB_ID.out"
+csv="$dir/x-$JOB_ID-table.csv"
 "{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
-test -e "$xpt.csv" && mv "$xpt.csv" "$dir"
+test -e "$wd/$xpt.csv" && mv "$wd/$xpt.csv" "$dir"
                 '''.format(nsamp = int(sys.argv[5]),
                         size = (1 + int(math.log10(float(sys.argv[5])))),
                         batchsize = (1 + int(math.log10(float(sys.argv[5]) / 5000.0))),
                         maxbatch = 5000,
                         threads = 2, nlogo_threads = 1,
-                        java_home = os.getenv('JAVA_HOME', '/usr/bin/java'),
-                        nlogo_home = os.getenv('NETLOGO_HOME', '/Applications/NetLogo 6.2.0'),
-                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/Applications/NetLogo 6.2.0/netlogo-headless.sh'),
+                        java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
+                        nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
+                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
                         xml = sys.argv[6], model = nlogo))
             fp.close()
             os.chmod(sys.argv[7], 0o775)
