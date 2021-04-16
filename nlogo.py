@@ -12,6 +12,15 @@ Run from the command line, it can be used to:
 
   ./nlogo.py <nlogo file> expt
 
+* Split an experiment's settings into individual experiments
+
+  ./nlogo.py <nlogo file> split <experiment name> <experiment XML file>
+
+* Prepare a script to run all the split experiments with Sun Grid Engine
+
+  ./nlogo.py <nlogo file> splitq <experiment name> <experiment XML file>
+                                 <file to save SGE submission script to>
+
 * Prepare a Monte Carlo sample of parameter space
 
   ./nlogo.py <nlogo file> monte <parameter file> <tick number to stop at>
@@ -44,9 +53,9 @@ Other potentially useful tools (for future implementation)
 * Extract and collate outputs from NetLogo experiments in an XML file
 
 * Automatically split up large sample sizes for monte and montq into
-  chunks of, say, 20000 runs at a time.
+  chunks of, say, 20000 runs at a time. (DONE)
 
-* Creata a qsub script to run a BehaviorSpace experiment in parallel
+* Creata a qsub script to run a BehaviorSpace experiment in parallel (DONE)
 
 * Parse code and do things with it, like extracting an ontology, or UML
   diagrams
@@ -69,7 +78,7 @@ Other potentially useful tools (for future implementation)
 #
 # You should have received a copy of the GNU General Public Licence
 # along with this program.  If not, see <https://www.gnu.org/licences/>.
-__version__ = "0.2"
+__version__ = "0.3"
 __author__ = "Gary Polhill"
 
 # Imports
@@ -582,7 +591,7 @@ class BahaviorSpaceXMLError(Exception):
     """
     def __init__(self, file, expected, found):
         self.file = file
-        self.expected = exected
+        self.expected = expected
         self.found = found
 
     def __str__(self):
@@ -594,10 +603,26 @@ class SteppedValue:
     BehaviorSpace
     """
     def __init__(self, variable, first, step, last):
+        if step < 0.0 and first < last:
+            raise ValueError("In BehaviorSpace, variable \"%s\" has negative step %f with start %f < stop %f"%(variable, step, first, last))
+        elif step > 0.0 and first > last:
+            raise ValueError("In BehaviorSpace, variable \"%s\" has step %f with start %f > stop %f"%(variable, step, first, last))
+        elif step == 0.0 and first != last:
+            raise ValueError("In BehaviorSpace, variable \"%s\" has step 0.0 with start %f != stop %f"%(variable, step, first, last))
         self.variable = variable
         self.first = first
         self.step = step
         self.last = last
+        self.values = []
+        self.values.append(first)
+        while self.values[-1] < self.last:
+            self.values.append(self.step + self.values[-1])
+
+    def getValues(self):
+        return self.values
+
+    def getNValues(self):
+        return len(self.values)
 
     @staticmethod
     def fromXML(xml, file_name):
@@ -618,6 +643,12 @@ class EnumeratedValue:
         else:
             self.values = []
             self.values.append(values)
+
+    def getValues(self):
+        return self.values
+
+    def getNValues(self):
+        return len(self.values)
 
     @staticmethod
     def fromXML(xml, file_name):
@@ -650,9 +681,66 @@ class Experiment:
         self.metrics = metrics
         self.steppedValueSet = stepped_values
         self.enumeratedValueSet = enumerated_values
-        self.repetitions = repetitions
+        self.repetitions = int(repetitions)
         self.sequentialRunOrder = sequential_run_order
         self.runMetricsEveryStep = run_metrics_every_step
+
+    def getNRuns(self):
+        runs = self.repetitions
+        for param in self.steppedValueSet:
+            runs *= param.getNValues()
+        for param in self.enumeratedValueSet:
+            runs *= param.getNValues()
+        return runs
+
+    def uniqueSettings(self):
+        """
+        Return an array of all the runs in this experiment with unique
+        parameter settings
+        """
+        experiments = []
+
+        counters = {}
+        maxes = {}
+        for param in self.steppedValueSet:
+            counters[param.variable] = 0
+            maxes[param.variable] = param.getNValues()
+        for param in self.enumeratedValueSet:
+            counters[param.variable] = 0
+            maxes[param.variable] = param.getNValues()
+
+        done = False
+        i = 0
+        n = self.getNRuns() / self.repetitions
+        while not done:
+            i += 1
+            new_name = "%s-%0*d" % (self.name, (1 + int(math.log10(n))), i)
+            enumerated_values = []
+
+            for param in self.steppedValueSet:
+                # N.B. adding this single value to enumerated_values is
+                # deliberate; the new experiment will have no stepped values
+                enumerated_values.append(EnumeratedValue(param.variable,
+                    param.getValues()[counters[param.variable]]))
+            for param in self.enumeratedValueSet:
+                enumerated_values.append(EnumeratedValue(param.variable,
+                    param.getValues()[counters[param.variable]]))
+
+            experiments.append(Experiment(new_name, self.setup, self.go,
+                self.final, self.timeLimit, self.exitCondition, self.metrics,
+                [], enumerated_values, self.repetitions, self.sequentialRunOrder,
+                self.runMetricsEveryStep))
+
+            for var in counters.keys():
+                counters[var] += 1
+                if counters[var] == maxes[var]:
+                    counters[var] = 0
+                else:
+                    break
+
+            done = (all(counters.values()) == 0)
+
+        return experiments
 
     @staticmethod
     def fromXMLString(str, file_name):
@@ -838,13 +926,13 @@ class Experiment:
                 sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
                 return False
 
-                Experiment.writeExperimentHeader(fp)
+            Experiment.writeExperimentHeader(fp)
 
-                for expt in expts:
-                    expt.writeExperimentDetails(fp)
+            for expt in expts:
+                expt.writeExperimentDetails(fp)
 
-                Experiment.writeExperimentFooter(fp)
-                fp.close()
+            Experiment.writeExperimentFooter(fp)
+            fp.close()
 
         else:
             n_batch = math.ceil(len(expts) / max_batch)
@@ -1120,12 +1208,29 @@ class NetlogoModel:
         fp.close()
 
     def printExperiments(self):
-        if len(self.behav):
+        if len(self.behav) == 0:
             print("There are no experiments")
         else:
             print("Experiments:")
             for expt in self.behav:
-                print("\t" + expt.name)
+                n = expt.getNRuns()
+
+                print("\t" + expt.name + " (" + str(expt.getNRuns()) + (" run)" if n == 1 else " runs)") )
+
+    def splitExperiment(self, name, file, max_size = 10000, max_batch = 5000):
+        self.getExperiments()
+        if len(self.behav) == 0:
+            print("There are no experiments")
+            return 0
+        elif name not in self.expts:
+            print("There is no experiment named " + name)
+            return 0
+        else:
+            expt = self.expts[name]
+            splitted = expt.uniqueSettings()
+            Experiment.writeExperiments(file, splitted, max_size, max_batch)
+            print("Written " + str(len(splitted)) + " experiments to " + file)
+            return len(splitted)
 
 class Sample:
     def __init__(self, param, datatype, setting, minimum, maximum):
@@ -1194,6 +1299,65 @@ if __name__ == "__main__":
         model.writeParameters(sys.argv[3])
     elif cmd == 'expts':
         model.printExperiments()
+    elif cmd == 'split' or cmd == 'splitq':
+        nexpts = model.splitExperiment(sys.argv[3], sys.argv[4], 10000, 5000)
+        if cmd == 'splitq' and nexpts > 0:
+            try:
+                fp = io.open(sys.argv[5], "w")
+            except IOError as e:
+                sys.stderr.write("Error creating file %s: %s\n"%(sys.argv[5], e.strerror))
+            if nexpts <= 10000:
+                fp.write(u'''#!/bin/sh
+#$ -cwd
+#$ -t 1-{nsamp}
+#$ -pe smp {threads}
+printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
+export JAVA_HOME="{java_home}"
+wd=`pwd`
+cd "{nlogo_home}"
+xml="$wd/{xml}"
+xpt="{expt}-$JOB_ID"
+out="$wd/{expt}-$JOB_ID.out"
+csv="$wd/{expt}-$JOB_ID-table.csv"
+"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads 1 --table "$csv" > "$out" 2>&1
+                '''.format(nsamp = nexpts,
+                    size = (1 + int(math.log10(nexpts))), threads = 2,
+                    java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
+                    nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
+                    nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
+                    xml = sys.argv[4], expt = sys.argv[3], model = nlogo))
+            else:
+                fp.write(u'''#!/bin/sh
+#$ -cwd
+#$ -t 1-{nsamp}
+#$ -pe smp {threads}
+#$ -j y
+#$ -o /dev/null
+printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
+printf -v BATCH_NO "%0{batchsize}d" $(expr $SGE_TASK_ID / {maxbatch})
+export JAVA_HOME="{java_home}"
+wd=`pwd`
+cd "{nlogo_home}"
+xml="$wd/`echo '{xml}' | sed -e 's/.xml$//'`"
+xml="$xml-$BATCH_NO.xml"
+dir="`echo $xml | sed -e 's/.xml$//'`"
+test -d "$dir" || mkdir "$dir"
+xpt="{expt}-$JOB_ID"
+out="$dir/{expt}-$JOB_ID.out"
+csv="$dir/{expt}-$JOB_ID-table.csv"
+"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
+test -e "$wd/$xpt.csv" && mv "$wd/$xpt.csv" "$dir"
+                '''.format(nsamp = nexpts,
+                    size = (1 + int(math.log10(nexpts))),
+                    batchsize = (1 + int(math.log10(nexpts / 5000.0))),
+                    maxbatch = 5000,
+                    threads = 2, nlogo_threads = 1,
+                    java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
+                    nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
+                    nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
+                    xml = sys.argv[4], expt = sys.argv[3], model = nlogo))
+            fp.close()
+            os.chmod(sys.argv[7], 0o775)
     elif cmd == 'monte' or cmd == 'montq':
         samples = Sample.read(sys.argv[3], model.getParameters())
         expt = Experiment.fromWidgets(model.widgets, "x", int(sys.argv[4]))
