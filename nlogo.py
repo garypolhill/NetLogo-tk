@@ -738,7 +738,7 @@ class Experiment:
                 else:
                     break
 
-            done = (all(counters.values()) == 0)
+            done = all([v == 0 for v in counters.values()])
 
         return experiments
 
@@ -1357,7 +1357,7 @@ test -e "$wd/$xpt.csv" && mv "$wd/$xpt.csv" "$dir"
                     nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
                     xml = sys.argv[4], expt = sys.argv[3], model = nlogo))
             fp.close()
-            os.chmod(sys.argv[7], 0o775)
+            os.chmod(sys.argv[5], 0o775)
     elif cmd == 'monte' or cmd == 'montq':
         samples = Sample.read(sys.argv[3], model.getParameters())
         expt = Experiment.fromWidgets(model.widgets, "x", int(sys.argv[4]))
