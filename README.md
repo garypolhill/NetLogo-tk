@@ -54,14 +54,35 @@ Run from the command line, it can be used to:
 
   `./nlogo.py <nlogo file> expt`
 
+* Split all the runs in an experiment so they can be executed separately
+
+  `./nlogo.py <nlogo file> split <experiment name> <experiment XML file>`
+
+  The experiment XML file then contains one experiment for each unique
+  parameter setting in the named experiment. If your experiment has several
+  repetitions, then these have not been split up. 
+
+* Split the runs in an experiment and prepare a Sun Grid Engine shell script
+  to submit them to a cluster
+
+  `./nlogo.py <nlogo file> split <experiment name> <experiment XML file>
+                                <file to save SGE submission script to>`
+
+  You can then submit the jobs with `qsub <SGE submission script>`
+
+
 * Prepare a Monte Carlo sample of parameter space
 
-  `./nlogo.py <nlogo file> monte <parameter file> <tick number to stop at> <number of samples> <experiment XML file>`
+  `./nlogo.py <nlogo file> monte <parameter file> <tick number to stop at>
+                                <number of samples> <experiment XML file>`
 
   Note: if the number of samples is large, the XML library used by NetLogo
   to read in the experiment file can cause out-of-memory and garbage
   collection errors, or result in the model taking a long time to run. Use
   number of samples > 10000 with caution.
+
+  Update: The script now splits large numbers of samples (>= 10000) into
+  batches of 5000 runs each.
 
   The created experiment file automatically collects data from plot pens
   and monitors each step.
@@ -76,4 +97,4 @@ Run from the command line, it can be used to:
   You can then submit the jobs with `qsub <SGE submission script>`
 
 A typical workflow would be to run this with `param` and then `montq`, before
-`qsub`bing the submission script. 
+`qsub`bing the submission script.

@@ -568,6 +568,8 @@ class InputBox(Parameter):
         self.isColour = (datatype == "Color")
         if self.isNumeric or self.isColour:
             self.datatype = 'numeric'
+        if self.isString:
+            self.value = "\"" + value + "\""
 
     @staticmethod
     def read(fp):
@@ -713,8 +715,8 @@ class Experiment:
         i = 0
         n = self.getNRuns() / self.repetitions
         while not done:
-            i += 1
             new_name = "%s-%0*d" % (self.name, (1 + int(math.log10(n))), i)
+            i += 1 # i starts at 0 for consistency with monte/montq
             enumerated_values = []
 
             for param in self.steppedValueSet:
@@ -858,7 +860,7 @@ class Experiment:
         for p in param:
             if isinstance(p, Parameter):
                 valuearr = []
-                if p.datatypeStr() == 'string' and not p.settingStr().startswith('"') and not p.settingStr().startsWith('&quot;'):
+                if p.datatypeStr() == 'string' and not p.settingStr().startswith('"') and not p.settingStr().startswith('&quot;'):
                     valuearr.append('"' + p.settingStr() + '"')
                 else:
                     valuearr.append(p.settingStr())
@@ -1086,8 +1088,10 @@ class Experiment:
                 self.addMetric(p)
         elif isinstance(metric, Pen):
             code = metric.updateCode
-            if code.startswith('"plot '):
-                code = code[6:-1]
+            if code.startswith('"'):
+                code = code[1:-1].replace('\\"', '"')
+            if code.startswith('plot '):
+                code = code[5:]
             self.metrics.append(code)
         else:
             self.metrics = str(metric)
