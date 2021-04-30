@@ -1055,7 +1055,7 @@ class Experiment:
             paramStr = paramStr + v.variable + ","
             wordStr = wordStr + v.variable + " \",\" "
         for m in self.metrics:
-            paramStr = paramStr + m.replace(",", ".") + ","
+            paramStr = paramStr + m.replace(",", ".").replace('"', ".") + ","
             wordStr = wordStr + "(" + m + ") \",\" "
         self.final = '''
             ifelse file-exists? "{file}" [
