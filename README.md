@@ -65,7 +65,7 @@ Run from the command line, it can be used to:
 * Split the runs in an experiment and prepare a Sun Grid Engine shell script
   to submit them to a cluster
 
-  `./nlogo.py <nlogo file> split <experiment name> <experiment XML file>
+  `./nlogo.py <nlogo file> splitq <experiment name> <experiment XML file>
                                 <file to save SGE submission script to>`
 
   You can then submit the jobs with `qsub <SGE submission script>`
