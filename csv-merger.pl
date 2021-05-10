@@ -56,6 +56,7 @@ my $use_pattern = 0;
 my $quiet = 0;
 my $allow_diff = 1;
 my $mod_days = 0;
+my $ignore = 0;
 
 # Process command-line options and check usage
 
@@ -85,6 +86,9 @@ while($ARGV[0] =~ /^-/) {
     my $time = timelocal(0, 0, 0, $mday, $month - 1, $year - 1900);
     $mod_days = (time - $time) / 86400;
   }
+  elsif($option eq '-ignore') {
+    $ignore = shift(@ARGV);
+  }
   else {
     die "Option $option not recognized\n";
   }
@@ -92,7 +96,8 @@ while($ARGV[0] =~ /^-/) {
 
 if(scalar(@ARGV) < 2) {
   die "Usage: $0 [-pattern <perl regexp>] [-quiet] [-NA <empty cell string>] ",
-    "[-same] [-modified <days ago>] [-since <YYYY-MM-DD>] <Output CSV file> ",
+    "[-same] [-modified <days ago>] [-since <YYYY-MM-DD>] [-ignore <n. lines>]",
+    " <Output CSV file> ",
     "<CSV files or dirs if -pattern given...>\n";
 }
 
@@ -135,6 +140,9 @@ foreach my $file (@input) {
   }
   open(IN, "<", $file) or die "Cannot read input CSV file $file: $!\n";
 
+  for(my $line = 0; $line < $ignore; $line++) {
+    my $ignore_line = <IN>;
+  }
   my $header_line = <IN>;
   $header_line =~ s/\s+$//;
 
