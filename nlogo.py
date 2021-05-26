@@ -548,7 +548,8 @@ class OutputArea(Output):
         right = int(fp.readline())
         bottom = int(fp.readline())
         font_size = int(fp.readline())
-        return Output(left, top, right, bottom, font_size)
+        display = ""
+        return Output(left, top, right, bottom, font_size, display)
 
 class InputBox(Parameter):
     """
@@ -1317,7 +1318,7 @@ if __name__ == "__main__":
 #$ -pe smp {threads}
 printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
 export JAVA_HOME="{java_home}"
-wd=`pwd`
+wd=`pwd`/experiment-$JOB_ID
 cd "{nlogo_home}"
 xml="$wd/{xml}"
 xpt="{expt}-$JOB_ID"
