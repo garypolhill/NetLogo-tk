@@ -1095,7 +1095,7 @@ class Experiment:
                 code = code[5:]
             self.metrics.append(code)
         else:
-            self.metrics = str(metric)
+            self.metrics.append(str(metric))
 
     def clearSteppedValueSet(self):
         self.steppedValueSet = []
