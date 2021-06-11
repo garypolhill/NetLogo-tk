@@ -1094,7 +1094,7 @@ class Experiment:
             if code.startswith('plot '):
                 code = code[5:]
             self.metrics.append(code)
-        else:
+        elif not isinstance(metric, Output):
             self.metrics.append(str(metric))
 
     def clearSteppedValueSet(self):
