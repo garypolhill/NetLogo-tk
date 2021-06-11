@@ -526,7 +526,7 @@ class Monitor(Output):
         right = int(fp.readline())
         bottom = int(fp.readline())
         display = fp.readline().strip()
-        source = fp.readline().strip()
+        source = fp.readline().strip().replace("\\\"", "\"")
         precision = int(fp.readline())
         res1 = fp.readline()
         font_size = int(fp.readline())
