@@ -98,3 +98,19 @@ Run from the command line, it can be used to:
 
 A typical workflow would be to run this with `param` and then `montq`, before
 `qsub`bing the submission script.
+
+## shpinfo.jl
+
+NetLogo's GIS package only supports [some projections](https://github.com/NetLogo/GIS-Extension)
+for shape files, and it can be handy to see what's in a shapefile when processing
+it. `shpinfo.jl` does this. You will require [Julia](https://julialang.org/), and
+the [Shapefile](https://github.com/JuliaGeo/Shapefile.jl) and [DataFrames](https://dataframes.juliadata.org/stable/)
+packages. (Start Julia from the command line, hit `]` to go to the `Pkg` prompt, and
+then do `add Shapefile`, and then `add DataFrames`. Hit backspace to get out of the `Pkg`
+prompt and `CTRL-D` to exit Julia. Note that you will need to add a link to /usr/local/bin/julia
+from your Julia installation binary for this script to work. See the [platform-specific installation instructions](https://julialang.org/downloads/platform/))
+
+To run it, just do `shpinfo.jl`. If you want a non-default number of values to be shown
+for each feature, you can give the `--values <n>` option. If you don't want the script
+to search recursively for all shapefiles under the current working directory, you can
+specify one or more directories or shapefiles as command-line arguments. 
