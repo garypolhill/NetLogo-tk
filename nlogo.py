@@ -78,7 +78,7 @@ Other potentially useful tools (for future implementation)
 #
 # You should have received a copy of the GNU General Public Licence
 # along with this program.  If not, see <https://www.gnu.org/licences/>.
-__version__ = "0.3"
+__version__ = "0.4"
 __author__ = "Gary Polhill"
 
 # Imports
@@ -833,9 +833,9 @@ class Experiment:
         for w in widgets:
             if isinstance(w, Button):
                 if(w.display == "setup" or w.code == "setup"):
-                    setup = w.code
+                    setup = w.code.replace("\\n", "\n")
                 elif(w.display == "go" or w.code == "go"):
-                    go = w.code
+                    go = w.code.replace("\\n", "\n")
             elif isinstance(w, Output) and not isinstance(w, OutputArea):
                 outputs.append(w)
             elif isinstance(w, Parameter):
@@ -1093,7 +1093,8 @@ class Experiment:
                 code = code[1:-1].replace('\\"', '"')
             if code.startswith('plot '):
                 code = code[5:]
-            self.metrics.append(code)
+            if not code.startswith('histogram '):
+                self.metrics.append(code)
         elif not isinstance(metric, Output):
             self.metrics.append(str(metric))
 
