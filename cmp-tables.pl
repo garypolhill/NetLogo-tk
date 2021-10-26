@@ -1,6 +1,8 @@
 #!/usr/bin/perl
 
 use strict;
+use FindBin;
+use lib $FindBin::Bin;			# Needed to find nlogo2R
 
 use nlogo2R;
 
@@ -22,12 +24,13 @@ foreach my $file (@ARGV) {
   }
 
   for(my $i = 1; $i <= $#$headers && $$headers[$i] ne "step"; $i++) {
-    $param{$$headers[$i]}->{$$data[$i]}++;
+    $param{$$headers[$i]}->{$$data[0][$i]}++;
 
     if(!$first && !defined($first_param{$$headers[$i]})) {
-      $other_param{$header} = 1;
+      $other_param{$$headers[$i]} = 1;
     }
   }
+  print "Read \"$file\"\n";
 }
 
 print "Single parameter settings\nParameter,Value\n";
@@ -40,7 +43,7 @@ foreach my $parm (sort { $a cmp $b } keys(%param)) {
     }
   }
 }
-print "Single parameter settings (not in all files)\nParameter,Value,N\n";
+print "\nSingle parameter settings (not in all files)\nParameter,Value,N\n";
 foreach my $parm (sort { $a cmp $b } keys(%param)) {
   if(defined($other_param{$parm})) {
     my $valuet = $param{$parm};
@@ -50,27 +53,31 @@ foreach my $parm (sort { $a cmp $b } keys(%param)) {
     }
   }
 }
-print "Multiple settings\nParameter,Value1,N1,...\n";
+print "\nMultiple settings\nParameter,Value1,N1,...\n";
 foreach my $parm (sort { $a cmp $b } keys(%param)) {
   if(!defined($other_param{$parm})) {
     my $valuet = $param{$parm};
 
-    print "$parm";
-    foreach my $value (sort { $a cmp $b } keys(%$valuet)) {
-      print ",$value,$$valuet{$value}";
+    if(scalar(keys(%$valuet)) > 1) {
+      print "$parm";
+      foreach my $value (sort { $a cmp $b } keys(%$valuet)) {
+        print ",$value,$$valuet{$value}";
+      }
+      print "\n";
     }
-    print "\n";
   }
 }
-print "Multiple settings (not in all files)\nParameter,Value1,N1,...\n";
+print "\nMultiple settings (not in all files)\nParameter,Value1,N1,...\n";
 foreach my $parm (sort { $a cmp $b } keys(%param)) {
   if(defined($other_param{$parm})) {
     my $valuet = $param{$parm};
 
-    print "$parm";
-    foreach my $value (sort { $a cmp $b } keys(%$valuet)) {
-      print ",$value,$$valuet{$value}";
+    if(scalar(keys(%$valuet)) > 1) {
+      print "$parm";
+      foreach my $value (sort { $a cmp $b } keys(%$valuet)) {
+        print ",$value,$$valuet{$value}";
+      }
+      print "\n";
     }
-    print "\n";
   }
 }
