@@ -1,4 +1,7 @@
 #!/usr/bin/perl
+#
+# Script to compare table output from NetLogo to see which parameters have
+# been varied.
 
 use strict;
 use FindBin;

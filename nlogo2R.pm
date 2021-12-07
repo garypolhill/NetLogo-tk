@@ -229,7 +229,7 @@ sub readworld (*$$;@) {
       $line ne 'GLOBALS';
       $line = &readqline($fp)) {
   }
-  
+
   my %globals = &readconsts($fp);
 
   foreach my $key (keys(%globals)) {
@@ -488,7 +488,7 @@ sub readbspace (*$$) {
     return readtable($fp, $file, $metadata, $netlogo, $exptid, $date,
 		     \%envsize, \@cells);
   }
-  
+
 }
 
 sub readtable($$$$$$\%\@) {
@@ -512,7 +512,7 @@ sub readtable($$$$$$\%\@) {
   for(my @cells = &readcells($fp);
       scalar(@cells) > 0;
       @cells = &readcells($fp)) {
-    
+
     my @rowdata;
 
     if($metadata) {
@@ -652,7 +652,7 @@ sub readqline {
   my ($fp) = @_;
 
   my $line = <$fp>;
-  
+
   $line =~ s/\s*\z//;
 
   $line =~ s/^\"//;

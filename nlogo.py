@@ -84,6 +84,7 @@ __author__ = "Gary Polhill"
 # Imports
 import io
 import os
+import re
 import sys
 import math
 import random as rnd
@@ -674,7 +675,7 @@ class Experiment:
     def __init__(self, name, setup, go, final, time_limit, exit_condition,
                  metrics, stepped_values = [], enumerated_values = [],
                  repetitions = 1, sequential_run_order = True,
-                 run_metrics_every_step = True):
+                 run_metrics_every_step = True, results = "."):
         self.name = name
         self.setup = setup
         self.go = go
@@ -687,6 +688,7 @@ class Experiment:
         self.repetitions = int(repetitions)
         self.sequentialRunOrder = sequential_run_order
         self.runMetricsEveryStep = run_metrics_every_step
+        self.results = results # Directory where any output should be
 
     def getNRuns(self):
         runs = self.repetitions
@@ -1037,6 +1039,16 @@ class Experiment:
         else:
             self.setup = str(setup)
 
+    def addProgress(self):
+        f = "behaviorspace-experiment-name \"-\" behaviorspace-run-number \"-prog.txt\""
+        if self.results != ".":
+            f = "\"{dir}/\" " + f
+        f = "(word " + f + ")"
+        self.setup += "\nfile-open {f}\nfile-print (word \"0 / {s}: \" date-and-time)\nfile-close".format(
+            f = f, s = self.timeLimit)
+        self.go += "\nfile-open {f}\nfile-print (word ticks \" / {s}: \" date-and-time)\nfile-close".format(
+            f = f, s = self.timeLimit)
+
     def setGo(self, go):
         if isinstance(go, Button):
             self.go = go.code
@@ -1058,6 +1070,8 @@ class Experiment:
         for m in self.metrics:
             paramStr = paramStr + m.replace(",", ".").replace('"', ".") + ","
             wordStr = wordStr + "(" + m + ") \",\" "
+        if self.results != ".":
+            file_name = self.results + "/" + file_name
         self.final = '''
             ifelse file-exists? "{file}" [
                 file-open "{file}"
@@ -1235,7 +1249,7 @@ class NetlogoModel:
             expt = self.expts[name]
             splitted = expt.uniqueSettings()
             Experiment.writeExperiments(file, splitted, max_size, max_batch)
-            print("Written " + str(len(splitted)) + " experiments to " + file)
+            print("Written " + str(len(splitted)) + " experiments to \"" + file + "\"")
             return len(splitted)
 
 class Sample:
@@ -1294,138 +1308,250 @@ class Sample:
     def setSample(self):
         self.param.setValue(self.sample())
 
+class Batch:
+    def __init__(self, java, netlogo, headless, model, xml, expt, nruns, dir,
+                 batch, cores, gigaram, concur = 0, threads = 1, outstream = "",
+                 errstream = "", zip = True, delay = 1, time = 86400, nanny = ""):
+        self.java = java
+        self.netlogo = netlogo
+        self.headless = headless
+        self.model = model
+        self.dir = dir
+        self.name = xml[:-4]
+        if batch <= 1:
+            self.xml = xml
+            self.batchzeros = 0
+        else:
+            self.xml = self.name + "-$BATCH_NO.xml"
+            self.batchzeros = 1 + int(math.log10(nruns / batch))
+            if self.dir == ".":
+                self.dir = "$BATCH_NO"
+            else:
+                self.dir = "{dir}/{xml}-$BATCH_NO".format(dir = dir, xml = self.name)
+        self.expt = expt
+        self.nruns = nruns
+        self.nrunzeros = 1 if nruns <= 1 else 1 + int(math.log10(nruns - 1))
+        self.batch = batch
+        self.cores = cores
+        self.threads = threads
+        self.gigaram = gigaram
+        self.concur = concur
+        if concur > nruns:
+            self.concur = self.nruns
+        # If your headless job submission script contains "-XXg" (e.g. because
+        # it copies netlogo-headless.sh and adjust the -Xmx flag accordingly)
+        # then handle that
+        if gigaram != 0:
+            headram = re.compile(r'-\d+g')
+            if headram.search(headless) != None:
+                self.headless = headram.sub("-{ram}g".format(ram = gigaram), headless)
+        self.outstream = outstream
+        self.errstream = errstream
+        self.zip = zip
+        self.delay = delay
+        self.time = time
+        self.nanny = nanny
+
+    @staticmethod
+    def defaultBatch(model, xml, expt, nruns, batch, dir, cores = 2, gigaram = 4,
+        concur = 0, threads = 1, outstream = "/dev/null", errstream = "/dev/null",
+        zip = False, delay = 0, time = 86400, nanny = "",
+        java = '/mnt/apps/java/jdk-14.0.2', netlogo = '/mnt/apps/netlogo-6.2.0',
+        headless = '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'):
+
+        java_home = os.getenv("JAVA_HOME", java)
+        netlogo_home = os.getenv("NETLOGO_HOME", netlogo)
+        netlogo_invoke = os.getenv("NETLOGO_INVOKE", headless)
+        return Batch(java_home, netlogo_home, netlogo_invoke, model, xml, expt,
+            nruns, dir, batch, cores, gigaram, concur, threads, outstream,
+            errstream, zip, delay, time, nanny)
+
+    def saveSGE(self, file_name):
+        try:
+            fp = io.open(file_name, "w")
+        except IOError as e:
+            sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
+        fp.write(u'''#!/bin/sh
+#$ -cwd
+#$ -t 1-{nrun}
+#$ -pe smp {svr_cores}
+#$ -N {name}
+#$ -l h_cpu={time}
+'''.format(nrun = self.nruns, svr_cores = self.cores,
+            name = self.name, time = self.time))
+        if self.concur != 0:
+            fp.write(u"#$ -tc {concur}\n".format(concur = self.concur))
+        if self.outstream != "":
+            fp.write(u"#$ -o {out}\n".format(out = self.outstream))
+        if self.errstream != "":
+            if self.errstream == self.outstream:
+                fp.write(u"#$ -j y\n")
+            else:
+                fp.write(u"#$ -e {err}\n".format(err = self.errstream))
+
+        if self.gigaram != 0:
+            fp.write(u"#$ -l h_vmem={mem}m\n".format(mem = self.gigaram * 1024 / self.cores))
+        if self.delay != 0:
+            fp.write(u"sleep {delay}\n".format(delay = self.delay))
+        fp.write(u"printf -v JOB_ID \"%0{size}d\" $(expr $SGE_TASK_ID - 1)\n".format(
+            size = self.nrunzeros
+        ))
+        if self.batch > 1:
+            fp.write(u"printf -v BATCH_NO \"%0{batchsize}d\" $(expr $SGE_TASK_ID / {maxbatch})\n".format(
+                batchsize = self.batchzeros,
+                maxbatch = self.batch
+            ))
+        if self.nanny == "":
+            self.saveCommon(fp)
+        else:
+            self.saveCommon(fp, self.nanny)
+        fp.close()
+        os.chmod(file_name, 0o755)
+
+    def saveSLURM(file_name):
+        try:
+            fp = io.open(file_name, "w")
+        except IOError as e:
+            sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
+        fp.write(u'''#!/bin/sh
+#SBATCH --begin=now+{delay}
+#SBATCH --cpu-per-task={cores}
+#SBATCH --job-name={name}
+#SBATCH --time={time}
+'''.format(delay = self.delay, cores = self.cores, name = self.name,
+            time = math.ceil(self.time / 60)))
+        if self.outstream != "":
+            fp.write(u"#SBATCH --output={out}\n".format(out = self.outstream))
+        if self.errstream != "":
+            fp.write(u"#SBATCH --error={err}\n".format(err = self.errstream))
+        if self.concur != 0:
+            fp.write(u"#SBATCH --array=1-{nrun}%{concur}\n".format(
+                nrun = self.nruns, concur = self.concur)
+            )
+        else:
+            fp.write(u"#SBATCH --array=1-{nrun}\n".format(nrun = self.nruns))
+        if self.gigaram != 0:
+            fp.write(u"#SBATCH --mem-per-cpu={mem}\n".format(
+                mem = self.gigaram * 1024 / self.cores)
+            )
+        fp.write(u"printf -v JOB_ID \"%0{size}d\" $(expr $SLURM_ARRAY_TASK_ID - 1)\n".format(
+            size = self.nrunzeros
+        ))
+
+        if self.batch > 1:
+            fp.write(u"printf -v BATCH_NO \"%0{batchsize}d\" $(expr $SLURM_ARRAY_TASK_ID / {maxbatch})\n".format(
+                batchsize = self.batchzeros, maxbatch = self.batch
+            ))
+
+        if self.nanny == "":
+            self.saveCommon(fp, "srun")
+        else:
+            self.saveCommon(fp, "srun " + self.nanny)
+        fp.close()
+        os.chmod(file_name, 0o755)
+
+    def saveCommon(self, fp, cmd = ""):
+            fp.write(u"mdir=`pwd`\n")
+            fp.write(u"xdir=`pwd`\n")
+            if self.dir != '.':
+                fp.write(u"rdir=`pwd`/{dir}\n".format(dir = self.dir))
+                fp.write(u"test -d \"$rdir\" || mkdir \"$rdir\"\n")
+            else:
+                fp.write(u"rdir=`pwd`\n")
+
+            fp.write(u'''
+xml="$xdir/{xml}"
+export JAVA_HOME="{java_home}"
+cd "{nlogo_home}"
+xpt="{expt}-$JOB_ID"
+out="$rdir/{expt}-$JOB_ID.out"
+csv="$rdir/{expt}-$JOB_ID-table.csv"
+{cmd} "{nlogo_invoke}" --model "$mdir/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
+'''.format(size = self.nrunzeros, xml = self.xml, java_home = self.java,
+                nlogo_home = self.netlogo, expt = self.expt, cmd = cmd,
+                nlogo_invoke = self.headless, model = self.model,
+                nlogo_threads = self.threads))
+            if self.zip:
+                fp.write(u"test -e \"$out\" && gzip \"$out\"\n")
+                fp.write(u"test -e \"$csv\" && gzip \"$csv\"\n")
+
+
 if __name__ == "__main__":
+    if(sys.argv[1] == "--help" or sys.argv[1] == "-h"):
+        print('''Usage: {cmd} <NetLogo model> <command> <command arguments...>
+    where <command> is one of:
+
+    +   param <CSV file>
+
+        Create a CSV file of all the model's parameters (one per row), with
+        columns for parameter name, data type, current setting, minimum and
+        maximum
+
+    +   expts
+
+        Print the list of names of experiments in the model file
+
+    +   split <experiment name> <XML file>
+
+        Take each of the unique parameter settings in the experiment with
+        the given name, and create an experiment XML in which each setting
+        has its own entry.
+
+    +   splitq <experiment name> <XML file> <job submission script>
+
+        As per the split command, but also create a job submission shell
+        script in the named file allowing each unique parameter setting to be
+        run in parallel on a computing cluster.
+
+    +   monte <parameter CSV> <stop step> <n samples> <XML file>
+
+        Create an experiment from the NetLogo file in which each of the
+        parameters in the parameter CSV file (which you can create with the
+        param command) is sampled at random between the specified minimum and
+        maximum value (the current setting column is ignored), saving the
+        result of the specific number of such samples to the XML file.
+
+    +   montq <parameter CSV> <stop step> <n samples> <XML file> <shell script>
+
+        As per the monte command, but then also write a job submission shell
+        script in the named file allowing each of the parameter samples to be
+        run in parallel on a computing cluster.
+        '''.format(cmd = sys.argv[0]))
+        sys.exit(0)
+
     nlogo = sys.argv[1]
     model = NetlogoModel.read(nlogo)
     if(model == False):
         sys.exit(1)
-    print("Read " + nlogo)
+    print("Read \"{nlogo}\"".format(nlogo = nlogo))
     cmd = sys.argv[2]
     if cmd == 'param':
         model.writeParameters(sys.argv[3])
+        print("Parameters written to \"{param}\"".format(param = sys.argv[3]))
     elif cmd == 'expts':
         model.printExperiments()
     elif cmd == 'split' or cmd == 'splitq':
-        nexpts = model.splitExperiment(sys.argv[3], sys.argv[4], 10000, 5000)
+        expt = sys.argv[3]
+        xml = sys.argv[4]
+        nexpts = model.splitExperiment(expt, xml, 10000, 5000)
         if cmd == 'splitq' and nexpts > 0:
-            try:
-                fp = io.open(sys.argv[5], "w")
-            except IOError as e:
-                sys.stderr.write("Error creating file %s: %s\n"%(sys.argv[5], e.strerror))
-            if nexpts <= 10000:
-                fp.write(u'''#!/bin/sh
-#$ -cwd
-#$ -t 1-{nsamp}
-#$ -pe smp {threads}
-printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
-export JAVA_HOME="{java_home}"
-wd=`pwd`/experiment-$JOB_ID
-cd "{nlogo_home}"
-xml="$wd/{xml}"
-xpt="{expt}-$JOB_ID"
-out="$wd/{expt}-$JOB_ID.out"
-csv="$wd/{expt}-$JOB_ID-table.csv"
-"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads 1 --table "$csv" > "$out" 2>&1
-                '''.format(nsamp = nexpts,
-                    size = (1 + int(math.log10(nexpts))), threads = 2,
-                    java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
-                    nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
-                    nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
-                    xml = sys.argv[4], expt = sys.argv[3], model = nlogo))
-            else:
-                fp.write(u'''#!/bin/sh
-#$ -cwd
-#$ -t 1-{nsamp}
-#$ -pe smp {threads}
-#$ -j y
-#$ -o /dev/null
-printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
-printf -v BATCH_NO "%0{batchsize}d" $(expr $SGE_TASK_ID / {maxbatch})
-export JAVA_HOME="{java_home}"
-wd=`pwd`
-cd "{nlogo_home}"
-xml="$wd/`echo '{xml}' | sed -e 's/.xml$//'`"
-xml="$xml-$BATCH_NO.xml"
-dir="`echo $xml | sed -e 's/.xml$//'`"
-test -d "$dir" || mkdir "$dir"
-xpt="{expt}-$JOB_ID"
-out="$dir/{expt}-$JOB_ID.out"
-csv="$dir/{expt}-$JOB_ID-table.csv"
-"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
-test -e "$wd/$xpt.csv" && mv "$wd/$xpt.csv" "$dir"
-                '''.format(nsamp = nexpts,
-                    size = (1 + int(math.log10(nexpts))),
-                    batchsize = (1 + int(math.log10(nexpts / 5000.0))),
-                    maxbatch = 5000,
-                    threads = 2, nlogo_threads = 1,
-                    java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
-                    nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
-                    nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
-                    xml = sys.argv[4], expt = sys.argv[3], model = nlogo))
-            fp.close()
-            os.chmod(sys.argv[5], 0o775)
+            batch = Batch.defaultBatch(nlogo, xml, expt, nexpts, math.ceil(nexpts / 5000), ".")
+            batch.saveSGE(sys.argv[5])
+            print("Job submission script written to \"{sh}\"".format(sh = sys.argv[5]))
     elif cmd == 'monte' or cmd == 'montq':
-        samples = Sample.read(sys.argv[3], model.getParameters())
-        expt = Experiment.fromWidgets(model.widgets, "x", int(sys.argv[4]))
-        expts = expt.withNSamples(samples, int(sys.argv[5]), True)
-        Experiment.writeExperiments(sys.argv[6], expts, 10000, 5000)
+        param = sys.argv[3]
+        stop = int(sys.argv[4])
+        nrun = int(sys.argv[5])
+        xml = sys.argv[6]
+        samples = Sample.read(param, model.getParameters())
+        expt = Experiment.fromWidgets(model.widgets, "x", stop)
+        expts = expt.withNSamples(samples, nrun, True)
+        Experiment.writeExperiments(xml, expts, 10000, 5000)
+        print("Experiments written to \"{xml}\"".format(xml = xml))
         if cmd == 'montq':
-            try:
-                fp = io.open(sys.argv[7], "w")
-            except IOError as e:
-                sys.stderr.write("Error creating file %s: %s\n"%(sys.argv[7], e.strerror))
-            if int(sys.argv[5]) <= 10000:
-                fp.write(u'''#!/bin/sh
-#$ -cwd
-#$ -t 1-{nsamp}
-#$ -pe smp {threads}
-printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
-export JAVA_HOME="{java_home}"
-wd=`pwd`
-cd "{nlogo_home}"
-xml="$wd/{xml}"
-xpt="x-$JOB_ID"
-out="$wd/x-$JOB_ID.out"
-csv="$wd/x-$JOB_ID-table.csv"
-"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads 1 --table "$csv" > "$out" 2>&1
-                '''.format(nsamp = int(sys.argv[5]),
-                        size = (1 + int(math.log10(float(sys.argv[5])))), threads = 2,
-                        java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
-                        nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
-                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
-                        xml = sys.argv[6], model = nlogo))
-            else:
-                fp.write(u'''#!/bin/sh
-#$ -cwd
-#$ -t 1-{nsamp}
-#$ -pe smp {threads}
-#$ -j y
-#$ -o /dev/null
-printf -v JOB_ID "%0{size}d" $(expr $SGE_TASK_ID - 1)
-printf -v BATCH_NO "%0{batchsize}d" $(expr $SGE_TASK_ID / {maxbatch})
-export JAVA_HOME="{java_home}"
-wd=`pwd`
-cd "{nlogo_home}"
-xml="$wd/`echo '{xml}' | sed -e 's/.xml$//'`"
-xml="$xml-$BATCH_NO.xml"
-dir="`echo $xml | sed -e 's/.xml$//'`"
-test -d "$dir" || mkdir "$dir"
-xpt="x-$JOB_ID"
-out="$dir/x-$JOB_ID.out"
-csv="$dir/x-$JOB_ID-table.csv"
-"{nlogo_invoke}" --model "$wd/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
-test -e "$wd/$xpt.csv" && mv "$wd/$xpt.csv" "$dir"
-                '''.format(nsamp = int(sys.argv[5]),
-                        size = (1 + int(math.log10(float(sys.argv[5])))),
-                        batchsize = (1 + int(math.log10(float(sys.argv[5]) / 5000.0))),
-                        maxbatch = 5000,
-                        threads = 2, nlogo_threads = 1,
-                        java_home = os.getenv('JAVA_HOME', '/mnt/apps/java/jdk-14.0.2'),
-                        nlogo_home = os.getenv('NETLOGO_HOME', '/mnt/apps/netlogo-6.2.0'),
-                        nlogo_invoke = os.getenv('NETLOGO_INVOKE', '/mnt/apps/netlogo-6.2.0/netlogo-headless-1cpu-4g.sh'),
-                        xml = sys.argv[6], model = nlogo))
-            fp.close()
-            os.chmod(sys.argv[7], 0o775)
+            batch = Batch.defaultBatch(nlogo, xml, "x", nrun, math.ceil(nrun / 5000), ".")
+            batch.saveSGE(sys.argv[7])
+            print("Job submission script written to \"{sh}\"".format(sh = sys.argv[7]))
     else:
         sys.stderr.write("Command \"%s\" not recognized\n"%(cmd))
     sys.exit(0)
