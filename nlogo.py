@@ -1312,19 +1312,19 @@ class Batch:
     def __init__(self, java, netlogo, headless, model, xml, expt, nruns, dir,
                  batch, cores, gigaram, concur = 0, threads = 1, outstream = "",
                  errstream = "", zip = True, delay = 1, time = 86400, nanny = "",
-                 project = ""):
+                 project = "", wait = 0, jobname = ""):
         self.java = java
         self.netlogo = netlogo
         self.headless = headless
         self.model = model
         self.dir = dir
-        self.name = xml[:-4]
+        self.name = jobname if jobname != "" else xml[:-4]
         if batch <= 1:
             self.xml = xml
             self.batchzeros = 0
         else:
             self.xml = self.name + "-$BATCH_NO.xml"
-            self.batchzeros = 1 + int(math.log10(nruns / batch))
+            self.batchzeros = 1 + int(math.log10((nruns / batch) - 1))
             if self.dir == ".":
                 self.dir = "$BATCH_NO"
             else:
@@ -1353,6 +1353,7 @@ class Batch:
         self.time = time
         self.nanny = nanny
         self.project = ""
+        self.wait = wait
 
     @staticmethod
     def defaultBatch(model, xml, expt, nruns, batch, dir, cores = 2, gigaram = 4,
@@ -1390,13 +1391,11 @@ class Batch:
                 fp.write(u"#$ -j y\n")
             else:
                 fp.write(u"#$ -e {err}\n".format(err = self.errstream))
-        if self.project != ""
+        if self.project != "":
             fp.write(u"#$ -P {proj}\n".format(proj = self.project))
 
         if self.gigaram != 0:
-            fp.write(u"#$ -l h_vmem={mem}m\n".format(mem = self.gigaram * 1024 / self.cores))
-        if self.delay != 0:
-            fp.write(u"sleep $((RANDOM % {delay}))\n".format(delay = self.delay))
+            fp.write(u"#$ -l h_vmem={mem}m\n".format(mem = int(self.gigaram * 1024 / self.cores)))
         fp.write(u"printf -v JOB_ID \"%0{size}d\" $(expr $SGE_TASK_ID - 1)\n".format(
             size = self.nrunzeros
         ))
@@ -1412,18 +1411,20 @@ class Batch:
         fp.close()
         os.chmod(file_name, 0o755)
 
-    def saveSLURM(file_name):
+    def saveSLURM(self, file_name):
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
             sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
-        fp.write(u'''#!/bin/sh
-#SBATCH --begin=now+{delay}
-#SBATCH --cpu-per-task={cores}
-#SBATCH --job-name={name}
-#SBATCH --time={time}
-'''.format(delay = self.delay, cores = self.cores, name = self.name,
-            time = math.ceil(self.time / 60)))
+        fp.write(u"#!/bin/sh\n")
+        if self.wait == 0:
+            fp.write(u"#SBATCH --begin=now\n")
+        else:
+            fp.write(u"#SBATCH --begin=now+{wait}\n".format(wait = self.wait))
+        fp.write(u"#SBATCH --cpu-per-task={cores}\n#SBATCH --job-name={name}\n".format(
+            cores = self.cores, name = self.name))
+        if self.time != 0:
+            fp.write(u"#SBATCH --time={time}\n".format(time = math.ceil(self.time / 60)))
         if self.outstream != "":
             fp.write(u"#SBATCH --output={out}\n".format(out = self.outstream))
         if self.errstream != "":
@@ -1438,7 +1439,7 @@ class Batch:
             fp.write(u"#SBATCH --wckey={proj}".format(proh = self.project))
         if self.gigaram != 0:
             fp.write(u"#SBATCH --mem-per-cpu={mem}\n".format(
-                mem = self.gigaram * 1024 / self.cores)
+                mem = int(self.gigaram * 1024 / self.cores))
             )
         fp.write(u"printf -v JOB_ID \"%0{size}d\" $(expr $SLURM_ARRAY_TASK_ID - 1)\n".format(
             size = self.nrunzeros
@@ -1457,15 +1458,17 @@ class Batch:
         os.chmod(file_name, 0o755)
 
     def saveCommon(self, fp, cmd = ""):
-            fp.write(u"mdir=`pwd`\n")
-            fp.write(u"xdir=`pwd`\n")
-            if self.dir != '.':
-                fp.write(u"rdir=`pwd`/{dir}\n".format(dir = self.dir))
-                fp.write(u"test -d \"$rdir\" || mkdir \"$rdir\"\n")
-            else:
-                fp.write(u"rdir=`pwd`\n")
+        if self.delay != 0:
+            fp.write(u"sleep $((RANDOM % {delay}))\n".format(delay = self.delay))
+        fp.write(u"mdir=\"`pwd`\"\n")
+        fp.write(u"xdir=\"`pwd`\"\n")
+        if self.dir != '.':
+            fp.write(u"rdir=\"`pwd`/{dir}\"\n".format(dir = self.dir))
+            fp.write(u"test -d \"$rdir\" || mkdir \"$rdir\"\n")
+        else:
+            fp.write(u"rdir=\"`pwd\"`\n")
 
-            fp.write(u'''
+        fp.write(u'''
 xml="$xdir/{xml}"
 export JAVA_HOME="{java_home}"
 cd "{nlogo_home}"
@@ -1474,69 +1477,96 @@ out="$rdir/{expt}-$JOB_ID.out"
 csv="$rdir/{expt}-$JOB_ID-table.csv"
 {cmd} "{nlogo_invoke}" --model "$mdir/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
 '''.format(size = self.nrunzeros, xml = self.xml, java_home = self.java,
-                nlogo_home = self.netlogo, expt = self.expt, cmd = cmd,
-                nlogo_invoke = self.headless, model = self.model,
-                nlogo_threads = self.threads))
-            if self.zip:
-                fp.write(u"test -e \"$out\" && gzip \"$out\"\n")
-                fp.write(u"test -e \"$csv\" && gzip \"$csv\"\n")
+            nlogo_home = self.netlogo, expt = self.expt, cmd = cmd,
+            nlogo_invoke = self.headless, model = self.model,
+            nlogo_threads = self.threads))
+        if self.zip:
+            fp.write(u"test -e \"$out\" && gzip \"$out\"\n")
+            fp.write(u"test -e \"$csv\" && gzip \"$csv\"\n")
 
 class Options:
     def __init__(self, args):
         self.defaults()
         i = 1
-        while(i < len(args) && args[i][0] == "-"):
-            if args[i] == "--batch-max" || args[i] == "-b":
+        while i < len(args) and args[i][0] == "-":
+            if args[i] == "--batch-max" or args[i] == "-b":
                 i += 1
                 self.max_batch = int(args[i])
-            elif args[i] == "--batch-size" || args[i] == "-B":
+                if self.batch_size > self.max_batch:
+                    self.batch_size = self.max_batch
+            elif args[i] == "--batch-size" or args[i] == "-B":
                 i += 1
                 self.batch_size = int(args[i])
-            elif args[i] == "--dir" || args[i] == "-d":
+            elif args[i] == "--dir" or args[i] == "-d":
                 i += 1
                 self.dir = args[i]
-            elif args[i] == "--error" || args[i] == "-e":
+            elif args[i] == "--error" or args[i] == "-e":
                 i += 1
                 self.err = args[i]
-            elif args[i] == "--gibibytes" || args[i] == "-g":
+            elif args[i] == "--find-netlogo" or args[i] == "-f":
+                i += 1
+                self.nlogo_home = args[i]
+            elif args[i] == "--gibibytes" or args[i] == "-g":
                 i += 1
                 self.gigaram = int(args[i])
-            elif args[i] == "--help" || args[i] -- "-h":
+            elif args[i] == "--no-limit-ram" or args[i] == "-G":
+                self.limit_ram = False
+            elif args[i] == "--help" or args[i] == "-h":
                 self.help()
-            elif args[i] == "--kill-days" || args[i] == "-k":
+            elif args[i] == "--headless" or args[i] == "-H":
+                self.nlogo_invoke = "netlogo-headless.sh"
+            elif args[i] == "--invoke-netlogo" or args[i] == "-i":
+                i += 1
+                self.nlogo_invoke = args[i]
+            elif args[i] == "--java" or args[i] == "-j":
+                i += 1
+                self.java = args[i]
+            elif args[i] == "--job-name" or args[i] == "-J":
+                i += 1
+                self.jobname = args[i]
+            elif args[i] == "--kill-days" or args[i] == "-k":
                 i += 1
                 self.days = float(args[i])
-            elif args[i] == "--limit-concurrent" || args[i] == "-l":
+            elif args[i] == "--limit-concurrent" or args[i] == "-l":
                 i += 1
                 self.concur = int(args[i])
-            elif args[i] == "--nanny" || args[i] == "-n":
+            elif args[i] == "--nanny" or args[i] == "-n":
                 i += 1
                 self.nanny = True
-            elif args[i] == "--no-nanny" || args[i] == "-N":
+            elif args[i] == "--no-nanny" or args[i] == "-N":
                 i += 1
                 self.nanny = False
-            elif args[i] == "--output" || args[i] == "-o":
+            elif args[i] == "--output" or args[i] == "-o":
                 i += 1
                 self.out = args[i]
-            elif args[i] == "--sleep-random" || args[i] == "-s":
+            elif args[i] == "--project" or args[i] == "-p":
+                i += 1
+                self.project = args[i]
+            elif args[i] == "--sleep-random" or args[i] == "-s":
                 i += 1
                 self.delay = int(args[i])
             elif args[i] == "--SGE":
                 self.cluster = "SGE"
             elif args[i] == "--SLURM":
                 self.cluster = "SLURM"
-            elif args[i] == "--threads" || args[i] == "-t":
+            elif args[i] == "--threads" or args[i] == "-t":
                 i += 1
                 self.threads = int(args[i])
-            elif args[i] == "--threads-gc" || args[i] == "-T":
+            elif args[i] == "--threads-gc" or args[i] == "-T":
                 i += 1
                 self.gc = int(args[i])
-            elif args[i] == "--mc-expt" || args[i] == "-x":
+            elif args[i] == "--version" or args[i] == "-v":
+                i += 1
+                self.nlogov = args[i]
+            elif args[i] == "--wait" or args[i] == "-w":
+                i += 1
+                self.wait = int(args[i])
+            elif args[i] == "--mc-expt" or args[i] == "-x":
                 i += 1
                 self.name = args[i]
-            elif args[i] == "--no-zip" || args[i] == "-z":
+            elif args[i] == "--no-zip" or args[i] == "-z":
                 self.zip = False
-            elif args[i] == "--zip" || args[i] == "-Z":
+            elif args[i] == "--zip" or args[i] == "-Z":
                 self.zip = True
             elif args[i] == "--":
                 i += 1
@@ -1551,7 +1581,7 @@ class Options:
         i += 1
         self.cmd_args = []
         while i < len(args):
-            cmd_args.append(args[i])
+            self.cmd_args.append(args[i])
             i += 1
         if self.cmd == "param":
             if len(self.cmd_args) == 0:
@@ -1597,63 +1627,127 @@ class Options:
         print('''Usage: [options] {cmd} <NetLogo model> <command> <command arguments...>
     options (mostly relevant only for commands creating scripts):
 
-    --batch-max/-b <n>: maximum number of experiments to save in one XML file
-    --batch-size/-B <n>: if batch-max exceeded, experiments to save per XML file
-    --dir/-d <dir>: directory to save results to
-    --error/-e <file>: file to save script error stream to
+    --batch-max/-b <n>: maximum number of experiments to save in one XML file;
+        the XML parser used in some versions of NetLogo can slow down
+        significantly if this is more than 10000 (the default) or so. The
+        script and experiment files will be split up into batches of size
+        batch-size.
+    --batch-size/-B <n>: if batch-max exceeded, experiments to save per XML
+        file (should be less than or equal to batch-max, obvs.)
+    --dir/-d <dir>: directory to save results to. If you're making lots of runs,
+        this can be a good way of keeping things tidy in your top-level model
+        directory.
+    --error/-e <file>: file to save job submission script error stream to
+        (output and error from the NetLogo command will be saved elsewhere)
+    --find-netlogo/-f <dir>: where to find NetLogo
     --gibibytes/-g <n>: amount of RAM expected to be needed to run the model
+        (adjusts the invocation script used and hard memory limits in the job
+        submission script; use --no-limit-ram if you don't want the latter)
+    --no-limit-ram/-G: don't use --gibibytes to limit the RAM in the job
+        submission script
+    --headless/-H: use the default netlogo-headless.sh to invoke NetLogo
     --help/-h: print this message and exit
-    --kill-days/-k <n>: if the run isn't finished in n days, kill it
-    --limit-concurrent/-l <n>: limit the number of concurrent runs on the cluster
-    --nanny/-n: use the 'childminder' program to monitor the model runs
+    --invoke-netlogo/-i <exe>: use the specified NetLogo invocation script
+    --java/-j <dir>: where to find the JAVA Virtual Machine (dir/bin/java)
+    --job-name/-J <name>: identifier to use for the job's name on the cluster
+        (defaults to the name of the experiment file)
+    --kill-days/-k <n>: if the run isn't finished in n days, kill it; use 0
+        to let it run indefinitely
+    --limit-concurrent/-l <n>: limit the number of concurrent runs on the
+        cluster; can be useful if this will be a long-running job and you want
+        to submit other stuff while this is running
+    --nanny/-n: use the 'childminder' program to monitor the model runs; see
+        https://github.com/garypolhill/nanny
     --no-nanny/-N: don't use the 'childminder' program
-    --output/-o <file>: file to save script output stream to
-    --sleep-random/-s <n>: each run should sleep random max n seconds before starting
+    --output/-o <file>: file to save job submission script output stream to
+        (output and error from the NetLogo command will still be saved)
+    --project/-p <project>: project to charge (in the script); in SGE this
+        sets the -P option in the job submission script; in SLURM the --wckey
+    --sleep-random/-s <n>: each run should sleep random max n seconds before
+        starting; this can be a good idea to stop hundreds of processes trying
+        to access the same files at the same time
     --SGE: create a Sun Grid Engine submission script
-    --SLURM: create a SLURM submission script
-    --threads/-t <n>: use n threads in each simulation run for running the model
+    --SLURM: create a SLURM submission script (the default)
+    --threads/-t <n>: use n threads in each simulation run for running the
+        model; recommend 1 (the default), but this will be passed in the
+        --threads option to NetLogo and affects the number of cores that will
+        be requested for the run (with --threads-gc)
     --threads-gc/-T <n>: use n garbage collection threads (>= 2)
-    --mc-expt/-x <name>: experiment name stem to use for monte and montq commands
-    --no-zip/-z: don't gzip the output file and table CSV file
-    --zip/-Z: do gzip the output file and table CSV file
+    --version/-v <version>: NetLogo version to use (e.g. 6.2.1)
+    --wait/-w <n>: (SLURM only) queue n seconds from sbatch submission
+    --mc-expt/-x <name>: experiment name stem to use for monte and montq
+        commands
+    --no-zip/-z: don't gzip the output file and table CSV file after the
+        NetLogo run has finished
+    --zip/-Z: do gzip the output file and table CSV file after the NetLogo run
+        has finished (and save space)
+
+    If you're not using The James Hutton Institute's agent-based modelling
+    cluster, you will probably need to specify --find-netlogo and --java,
+    with --headless given to use the default NetLogo headless invocation
+    script or --invoke-netlogo to use one of your own. --gibibytes, --nanny,
+    --project, --threads-gc and --version will then probably not do anything
+    useful. On most clusters, you will want to muck around with the command
+    line options to Java to adjust memory and the number of garbage collection
+    threads.
+
+    environment variables:
+
+    +   JAVA_HOME: non-default JVM location to use
+    +   NETLOGO_HOME: where to find NetLogo
+    +   NETLOGO_INVOKE: full path to script to use to invoke NetLogo
 
     where <command> is one of:
 
-    +   param <CSV file>
+    +   param [<CSV file>]
 
         Create a CSV file of all the model's parameters (one per row), with
         columns for parameter name, data type, current setting, minimum and
-        maximum
+        maximum. If the CSV file is not given, the model name will be used
+        to generate it.
 
     +   expts
 
         Print the list of names of experiments in the model file
 
-    +   split <experiment name> <XML file>
+    +   split <experiment name> [<XML file>]
 
         Take each of the unique parameter settings in the experiment with
         the given name, and create an experiment XML in which each setting
-        has its own entry.
+        has its own entry. If the XML file is not given, the experiment name
+        will be used to generate it.
 
-    +   splitq <experiment name> <XML file> <job submission script>
+    +   splitq <experiment name> [<XML file> [<job submission script>]]
 
         As per the split command, but also create a job submission shell
         script in the named file allowing each unique parameter setting to be
-        run in parallel on a computing cluster.
+        run in parallel on a computing cluster. If the XML file is not given,
+        the experiment name is used to generate it and the job submission
+        script; if the job submission script is not given, the XML file is
+        used to generate it.
 
-    +   monte <parameter CSV> <stop step> <n samples> <XML file>
+    +   monte <parameter CSV> <stop step> <n samples> [<XML file>]
 
         Create an experiment from the NetLogo file in which each of the
         parameters in the parameter CSV file (which you can create with the
         param command) is sampled at random between the specified minimum and
         maximum value (the current setting column is ignored), saving the
-        result of the specific number of such samples to the XML file.
+        result of the specific number of such samples to the XML file. If the
+        XML file is not given the parameter CSV is used to generate it.
 
-    +   montq <parameter CSV> <stop step> <n samples> <XML file> <shell script>
+    +   montq <parameter CSV> <stop step> <n samples> [<XML file> [<script>]]
 
         As per the monte command, but then also write a job submission shell
         script in the named file allowing each of the parameter samples to be
-        run in parallel on a computing cluster.
+        run in parallel on a computing cluster. If the XML file is not given,
+        the parameter CSV is used to generate it and the script; if the script
+        is not given, the XML file is used to generate it.
+
+To submit the scripts created by splitq and montq, use qsub <script> on Sun
+Grid Engine, or sbatch <script> on SLURM. On Hutton machines, if you haven't
+used --project to specify in the submission script which account to accumulate
+the CPU cycles in, you'll need to do this on the command line with qsub -P
+<project> <script> on SGE, or sbatch --wckey=<project> <script> with SLURM.
 '''.format(cmd = sys.argv[0]))
         sys.exit(0)
 
@@ -1661,12 +1755,16 @@ class Options:
         return self.cmd_args
 
     def makeBatch(self, xml, expt, nruns, batch):
-        self.batch = Batch(self.java, self.nlogoHome(), self.nlogoInvoke(), self.model,
-                        xml, expt, nruns, self.dir, batch, self.cores(), self.gigaram,
+        passram = 0
+        if self.limit_ram:
+            passram = self.gigaram
+        self.batch = Batch(self.java, self.nlogoHome(), self.invokePath(), self.model,
+                        xml, expt, nruns, self.dir, batch, self.cores(), passram,
                         concur = self.concur, threads = self.threads,
                         outstream = self.err, errstream = self.err, zip = self.zip,
                         delay = self.delay, time = int(self.days * 86400),
-                        nanny = self.getNanny(), project = self.project)
+                        nanny = self.getNanny(), project = self.project,
+                        wait = self.wait, jobname = self.jobname)
 
     @staticmethod
     def cmpver(v1, v2):
@@ -1674,7 +1772,7 @@ class Options:
         tv2 = v2.split(".")
         maxi = min(len(tv1), len(tv2))
         for i in range(maxi):
-            if tv1[i].isnumeric() && tv2[i].isnumeric():
+            if tv1[i].isnumeric() and tv2[i].isnumeric():
                 nv1 = int(tv1[i])
                 nv2 = int(tv2[i])
                 if nv1 < nv2:
@@ -1713,16 +1811,25 @@ class Options:
         self.max_batch = 10000
         self.batch_size = 5000
         self.name = "x"
+        self.wait = 0
+        self.nlogo_home = ""
+        self.nlogo_invoke = ""
+        self.limit_ram = True
+        self.jobname = ""
 
     def cores(self):
         return self.threads + self.gc
 
     def nlogoHome(self):
+        if self.nlogo_home != "":
+            return self.nlogo_home
         return os.getenv("NETLOGO_HOME", "{dir}-{ver}".format(
             dir = self.nlogo_home_dir, ver = self.nlogov))
 
     def invokeScript(self):
-        if Options.cmpver(self.nlogov, "6.2.1") < 0:
+        if self.nlogo_invoke != "":
+            return self.nlogo_invoke
+        elif Options.cmpver(self.nlogov, "6.2.1") < 0:
             return "netlogo-headless-{cores}cpu-{gig}g.sh".format(
                 cores = self.cores(), gig = self.gigaram)
         else:
@@ -1748,8 +1855,22 @@ class Options:
             sys.stderr.write("Cluster format \"{fmt}\" not recognized\n".format(
                 fmt = self.cluster))
 
+    def runCmd(self, script):
+        if self.cluster == "SLURM":
+            if self.project == "":
+                return "sbatch --wckey=<project> {sh}".format(sh = script)
+            else:
+                return "sbatch {sh}".format(sh = script)
+        elif self.cluster == "SGE":
+            if self.project == "":
+                return "qsub -P <project> {sh}".format(sh = script)
+            else:
+                return "qsub {sh}".format(sh = script)
+        else:
+            return script
+
 if __name__ == "__main__":
-    opts = Options(self.argv)
+    opts = Options(sys.argv)
 
     model = NetlogoModel.read(opts.model)
     if(model == False):
@@ -1769,15 +1890,17 @@ if __name__ == "__main__":
             opts.makeBatch(args[1], args[0], nexpts, math.ceil(nexpts / opts.batch_size))
             opts.saveScript(args[2])
             print("Job submission script written to \"{sh}\"".format(sh = args[2]))
-    elif cmd == 'monte' or cmd == 'montq':
+            print("Submit the script with \"{sub}\"".format(sub = opts.runCmd(args[2])))
+    elif opts.cmd == 'monte' or opts.cmd == 'montq':
         samples = Sample.read(args[0], model.getParameters())
         expt = Experiment.fromWidgets(model.widgets, opts.name, int(args[1]))
         expts = expt.withNSamples(samples, int(args[2]), True)
         Experiment.writeExperiments(args[3], expts, opts.max_batch, opts.batch_size)
         print("Experiments written to \"{xml}\"".format(xml = args[3]))
-        if cmd == 'montq':
-            opts.matchBatch(args[3], opts.name, args[2], math.ceil(args[2] / opts.batch_size))
+        if opts.cmd == 'montq':
+            opts.makeBatch(args[3], opts.name, int(args[2]), math.ceil(int(args[2]) / opts.batch_size))
             opts.saveScript(args[4])
             print("Job submission script written to \"{sh}\"".format(sh = args[4]))
+            print("Submit the script with \"{sub}\"".format(sub = opts.runCmd(args[4])))
 
     sys.exit(0)
