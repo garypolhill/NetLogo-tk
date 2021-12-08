@@ -1311,7 +1311,8 @@ class Sample:
 class Batch:
     def __init__(self, java, netlogo, headless, model, xml, expt, nruns, dir,
                  batch, cores, gigaram, concur = 0, threads = 1, outstream = "",
-                 errstream = "", zip = True, delay = 1, time = 86400, nanny = ""):
+                 errstream = "", zip = True, delay = 1, time = 86400, nanny = "",
+                 project = ""):
         self.java = java
         self.netlogo = netlogo
         self.headless = headless
@@ -1351,6 +1352,7 @@ class Batch:
         self.delay = delay
         self.time = time
         self.nanny = nanny
+        self.project = ""
 
     @staticmethod
     def defaultBatch(model, xml, expt, nruns, batch, dir, cores = 2, gigaram = 4,
@@ -1388,11 +1390,13 @@ class Batch:
                 fp.write(u"#$ -j y\n")
             else:
                 fp.write(u"#$ -e {err}\n".format(err = self.errstream))
+        if self.project != ""
+            fp.write(u"#$ -P {proj}\n".format(proj = self.project))
 
         if self.gigaram != 0:
             fp.write(u"#$ -l h_vmem={mem}m\n".format(mem = self.gigaram * 1024 / self.cores))
         if self.delay != 0:
-            fp.write(u"sleep {delay}\n".format(delay = self.delay))
+            fp.write(u"sleep $((RANDOM % {delay}))\n".format(delay = self.delay))
         fp.write(u"printf -v JOB_ID \"%0{size}d\" $(expr $SGE_TASK_ID - 1)\n".format(
             size = self.nrunzeros
         ))
@@ -1430,6 +1434,8 @@ class Batch:
             )
         else:
             fp.write(u"#SBATCH --array=1-{nrun}\n".format(nrun = self.nruns))
+        if self.project != "":
+            fp.write(u"#SBATCH --wckey={proj}".format(proh = self.project))
         if self.gigaram != 0:
             fp.write(u"#SBATCH --mem-per-cpu={mem}\n".format(
                 mem = self.gigaram * 1024 / self.cores)
@@ -1475,10 +1481,142 @@ csv="$rdir/{expt}-$JOB_ID-table.csv"
                 fp.write(u"test -e \"$out\" && gzip \"$out\"\n")
                 fp.write(u"test -e \"$csv\" && gzip \"$csv\"\n")
 
+class Options:
+    def __init__(self, args):
+        self.defaults()
+        i = 1
+        while(i < len(args) && args[i][0] == "-"):
+            if args[i] == "--batch-max" || args[i] == "-b":
+                i += 1
+                self.max_batch = int(args[i])
+            elif args[i] == "--batch-size" || args[i] == "-B":
+                i += 1
+                self.batch_size = int(args[i])
+            elif args[i] == "--dir" || args[i] == "-d":
+                i += 1
+                self.dir = args[i]
+            elif args[i] == "--error" || args[i] == "-e":
+                i += 1
+                self.err = args[i]
+            elif args[i] == "--gibibytes" || args[i] == "-g":
+                i += 1
+                self.gigaram = int(args[i])
+            elif args[i] == "--help" || args[i] -- "-h":
+                self.help()
+            elif args[i] == "--kill-days" || args[i] == "-k":
+                i += 1
+                self.days = float(args[i])
+            elif args[i] == "--limit-concurrent" || args[i] == "-l":
+                i += 1
+                self.concur = int(args[i])
+            elif args[i] == "--nanny" || args[i] == "-n":
+                i += 1
+                self.nanny = True
+            elif args[i] == "--no-nanny" || args[i] == "-N":
+                i += 1
+                self.nanny = False
+            elif args[i] == "--output" || args[i] == "-o":
+                i += 1
+                self.out = args[i]
+            elif args[i] == "--sleep-random" || args[i] == "-s":
+                i += 1
+                self.delay = int(args[i])
+            elif args[i] == "--SGE":
+                self.cluster = "SGE"
+            elif args[i] == "--SLURM":
+                self.cluster = "SLURM"
+            elif args[i] == "--threads" || args[i] == "-t":
+                i += 1
+                self.threads = int(args[i])
+            elif args[i] == "--threads-gc" || args[i] == "-T":
+                i += 1
+                self.gc = int(args[i])
+            elif args[i] == "--mc-expt" || args[i] == "-x":
+                i += 1
+                self.name = args[i]
+            elif args[i] == "--no-zip" || args[i] == "-z":
+                self.zip = False
+            elif args[i] == "--zip" || args[i] == "-Z":
+                self.zip = True
+            elif args[i] == "--":
+                i += 1
+                break
+            else:
+                sys.stderr.write("Option \"{opt}\" not recognized\n".format(opt = args[i]))
+                sys.exit(1)
+            i += 1
+        self.model = args[i]
+        i += 1
+        self.cmd = args[i]
+        i += 1
+        self.cmd_args = []
+        while i < len(args):
+            cmd_args.append(args[i])
+            i += 1
+        if self.cmd == "param":
+            if len(self.cmd_args) == 0:
+                self.cmd_args.append("{stem}.csv".format(stem = self.model[0:-6]))
+        elif self.cmd == "expts":
+            None
+        elif self.cmd == "split":
+            if len(self.cmd_args) == 1:
+                self.cmd_args.append("{stem}.xml".format(stem = self.cmd_args[0]))
+            elif len(self.cmd_args) == 0:
+                sys.stderr.write("split needs at least one argument\n")
+                sys.exit(1)
+        elif self.cmd == "splitq":
+            if len(self.cmd_args) == 1:
+                self.cmd_args.append("{stem}.xml".format(stem = self.cmd_args[0]))
+                self.cmd_args.append("{stem}.sh".format(stem = self.cmd_args[0]))
+            elif len(self.cmd_args) == 2:
+                self.cmd_args.append("{stem}.sh".format(stem = self.cmd_args[1][0:-4]))
+            elif len(self.cmd_args) == 0:
+                sys.stderr.write("splitq needs at least one argument\n")
+                sys.exit(1)
+        elif self.cmd == "monte":
+            if len(self.cmd_args) == 3:
+                self.cmd_args.append("{stem}.xml".format(stem = self.cmd_args[0][0:-4]))
+            elif len(self.cmd_args) < 3:
+                sys.stderr.write("monte needs at least three arguments\n")
+                sys.exit(1)
+        elif self.cmd == "montq":
+            if len(self.cmd_args) == 3:
+                self.cmd_args.append("{stem}.xml".format(stem = self.cmd_args[0][0:-4]))
+                self.cmd_args.append("{stem}.sh".format(stem = self.cmd_args[0][0:-4]))
+            elif len(self.cmd_args) == 4:
+                self.cmd_args.append("{stem}.sh".format(stem = self.cmd_args[3][0:-4]))
+            elif len(self.cmd_args) < 3:
+                sys.stderr.write("montq needs at least three arguments\n")
+                sys.exit(1)
+        else:
+            sys.stderr.write("Command \"{cmd}\" not recognized\n".format(cmd = self.cmd))
+            sys.exit(1)
 
-if __name__ == "__main__":
-    if(sys.argv[1] == "--help" or sys.argv[1] == "-h"):
-        print('''Usage: {cmd} <NetLogo model> <command> <command arguments...>
+    @staticmethod
+    def help():
+        print('''Usage: [options] {cmd} <NetLogo model> <command> <command arguments...>
+    options (mostly relevant only for commands creating scripts):
+
+    --batch-max/-b <n>: maximum number of experiments to save in one XML file
+    --batch-size/-B <n>: if batch-max exceeded, experiments to save per XML file
+    --dir/-d <dir>: directory to save results to
+    --error/-e <file>: file to save script error stream to
+    --gibibytes/-g <n>: amount of RAM expected to be needed to run the model
+    --help/-h: print this message and exit
+    --kill-days/-k <n>: if the run isn't finished in n days, kill it
+    --limit-concurrent/-l <n>: limit the number of concurrent runs on the cluster
+    --nanny/-n: use the 'childminder' program to monitor the model runs
+    --no-nanny/-N: don't use the 'childminder' program
+    --output/-o <file>: file to save script output stream to
+    --sleep-random/-s <n>: each run should sleep random max n seconds before starting
+    --SGE: create a Sun Grid Engine submission script
+    --SLURM: create a SLURM submission script
+    --threads/-t <n>: use n threads in each simulation run for running the model
+    --threads-gc/-T <n>: use n garbage collection threads (>= 2)
+    --mc-expt/-x <name>: experiment name stem to use for monte and montq commands
+    --no-zip/-z: don't gzip the output file and table CSV file
+    --zip/-Z: do gzip the output file and table CSV file
+
     where <command> is one of:
 
     +   param <CSV file>
@@ -1516,42 +1654,130 @@ if __name__ == "__main__":
         As per the monte command, but then also write a job submission shell
         script in the named file allowing each of the parameter samples to be
         run in parallel on a computing cluster.
-        '''.format(cmd = sys.argv[0]))
+'''.format(cmd = sys.argv[0]))
         sys.exit(0)
 
-    nlogo = sys.argv[1]
-    model = NetlogoModel.read(nlogo)
+    def args(self):
+        return self.cmd_args
+
+    def makeBatch(self, xml, expt, nruns, batch):
+        self.batch = Batch(self.java, self.nlogoHome(), self.nlogoInvoke(), self.model,
+                        xml, expt, nruns, self.dir, batch, self.cores(), self.gigaram,
+                        concur = self.concur, threads = self.threads,
+                        outstream = self.err, errstream = self.err, zip = self.zip,
+                        delay = self.delay, time = int(self.days * 86400),
+                        nanny = self.getNanny(), project = self.project)
+
+    @staticmethod
+    def cmpver(v1, v2):
+        tv1 = v1.split(".")
+        tv2 = v2.split(".")
+        maxi = min(len(tv1), len(tv2))
+        for i in range(maxi):
+            if tv1[i].isnumeric() && tv2[i].isnumeric():
+                nv1 = int(tv1[i])
+                nv2 = int(tv2[i])
+                if nv1 < nv2:
+                    return -1
+                elif nv1 > nv2:
+                    return 1
+            else:
+                if tv1[i] < tv2[i]:
+                    return -1
+                elif tv1[i] > tv2[i]:
+                    return 1
+        if len(tv1) < len(tv2):
+            return -1
+        elif len(tv1) > len(tv2):
+            return 1
+        else:
+            return 0
+
+    def defaults(self):
+        self.cluster = "SLURM"
+        self.gigaram = 4
+        self.dir = "."
+        self.concur = 0
+        self.threads = 1
+        self.gc = 3
+        self.out = "/dev/null"
+        self.err = "/dev/null"
+        self.zip = False
+        self.delay = 0
+        self.days = 1
+        self.nanny = False
+        self.java = os.getenv("JAVA_HOME", "/mnt/apps/java/jdk-17.0.1")
+        self.nlogo_home_dir = "/mnt/apps/netlogo"
+        self.nlogov = "6.2.1"
+        self.project = ""
+        self.max_batch = 10000
+        self.batch_size = 5000
+        self.name = "x"
+
+    def cores(self):
+        return self.threads + self.gc
+
+    def nlogoHome(self):
+        return os.getenv("NETLOGO_HOME", "{dir}-{ver}".format(
+            dir = self.nlogo_home_dir, ver = self.nlogov))
+
+    def invokeScript(self):
+        if Options.cmpver(self.nlogov, "6.2.1") < 0:
+            return "netlogo-headless-{cores}cpu-{gig}g.sh".format(
+                cores = self.cores(), gig = self.gigaram)
+        else:
+            return "netlogo-headless-{gc}gc-{gig}Gi.sh".format(
+                gc = self.gc, gig = self.gigaram)
+
+    def invokePath(self):
+        return os.getenv("NETLOGO_INVOKE", "{home}/{script}".format(
+            home = self.nlogoHome(), script = self.invokeScript()))
+
+    def getNanny(self):
+        if self.nanny:
+            return os.getenv("NANNY", "/mnt/apps/nanny/childminder")
+        else:
+            return ""
+
+    def saveScript(self, filename):
+        if self.cluster == "SLURM":
+            self.batch.saveSLURM(filename)
+        elif self.cluster == "SGE":
+            self.batch.saveSGE(filename)
+        else:
+            sys.stderr.write("Cluster format \"{fmt}\" not recognized\n".format(
+                fmt = self.cluster))
+
+if __name__ == "__main__":
+    opts = Options(self.argv)
+
+    model = NetlogoModel.read(opts.model)
     if(model == False):
         sys.exit(1)
-    print("Read \"{nlogo}\"".format(nlogo = nlogo))
-    cmd = sys.argv[2]
-    if cmd == 'param':
-        model.writeParameters(sys.argv[3])
-        print("Parameters written to \"{param}\"".format(param = sys.argv[3]))
-    elif cmd == 'expts':
+    print("Read \"{nlogo}\"".format(nlogo = opts.model))
+
+    args = opts.args()
+
+    if opts.cmd == 'param':
+        model.writeParameters(args[0])
+        print("Parameters written to \"{param}\"".format(param = args[0]))
+    elif opts.cmd == 'expts':
         model.printExperiments()
-    elif cmd == 'split' or cmd == 'splitq':
-        expt = sys.argv[3]
-        xml = sys.argv[4]
-        nexpts = model.splitExperiment(expt, xml, 10000, 5000)
-        if cmd == 'splitq' and nexpts > 0:
-            batch = Batch.defaultBatch(nlogo, xml, expt, nexpts, math.ceil(nexpts / 5000), ".")
-            batch.saveSGE(sys.argv[5])
-            print("Job submission script written to \"{sh}\"".format(sh = sys.argv[5]))
+    elif opts.cmd == 'split' or opts.cmd == 'splitq':
+        nexpts = model.splitExperiment(args[0], args[1], opts.max_batch, opts.batch_size)
+        if opts.cmd == 'splitq' and nexpts > 0:
+            opts.makeBatch(args[1], args[0], nexpts, math.ceil(nexpts / opts.batch_size))
+            opts.saveScript(args[2])
+            print("Job submission script written to \"{sh}\"".format(sh = args[2]))
     elif cmd == 'monte' or cmd == 'montq':
-        param = sys.argv[3]
-        stop = int(sys.argv[4])
-        nrun = int(sys.argv[5])
-        xml = sys.argv[6]
-        samples = Sample.read(param, model.getParameters())
-        expt = Experiment.fromWidgets(model.widgets, "x", stop)
-        expts = expt.withNSamples(samples, nrun, True)
-        Experiment.writeExperiments(xml, expts, 10000, 5000)
-        print("Experiments written to \"{xml}\"".format(xml = xml))
+        samples = Sample.read(args[0], model.getParameters())
+        expt = Experiment.fromWidgets(model.widgets, opts.name, int(args[1]))
+        expts = expt.withNSamples(samples, int(args[2]), True)
+        Experiment.writeExperiments(args[3], expts, opts.max_batch, opts.batch_size)
+        print("Experiments written to \"{xml}\"".format(xml = args[3]))
         if cmd == 'montq':
-            batch = Batch.defaultBatch(nlogo, xml, "x", nrun, math.ceil(nrun / 5000), ".")
-            batch.saveSGE(sys.argv[7])
-            print("Job submission script written to \"{sh}\"".format(sh = sys.argv[7]))
-    else:
-        sys.stderr.write("Command \"%s\" not recognized\n"%(cmd))
+            opts.matchBatch(args[3], opts.name, args[2], math.ceil(args[2] / opts.batch_size))
+            opts.saveScript(args[4])
+            print("Job submission script written to \"{sh}\"".format(sh = args[4]))
+
     sys.exit(0)
