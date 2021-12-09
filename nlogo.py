@@ -1339,13 +1339,6 @@ class Batch:
         self.concur = concur
         if concur > nruns:
             self.concur = self.nruns
-        # If your headless job submission script contains "-XXg" (e.g. because
-        # it copies netlogo-headless.sh and adjust the -Xmx flag accordingly)
-        # then handle that
-        if gigaram != 0:
-            headram = re.compile(r'-\d+g')
-            if headram.search(headless) != None:
-                self.headless = headram.sub("-{ram}g".format(ram = gigaram), headless)
         self.outstream = outstream
         self.errstream = errstream
         self.zip = zip
@@ -1761,7 +1754,7 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         self.batch = Batch(self.java, self.nlogoHome(), self.invokePath(), self.model,
                         xml, expt, nruns, self.dir, batch, self.cores(), passram,
                         concur = self.concur, threads = self.threads,
-                        outstream = self.err, errstream = self.err, zip = self.zip,
+                        outstream = self.out, errstream = self.err, zip = self.zip,
                         delay = self.delay, time = int(self.days * 86400),
                         nanny = self.getNanny(), project = self.project,
                         wait = self.wait, jobname = self.jobname)
