@@ -1421,7 +1421,7 @@ class Batch:
             fp.write(u"#SBATCH --begin=now\n")
         else:
             fp.write(u"#SBATCH --begin=now+{wait}\n".format(wait = self.wait))
-        fp.write(u"#SBATCH --cpu-per-task={cores}\n#SBATCH --job-name={name}\n".format(
+        fp.write(u"#SBATCH --cpus-per-task={cores}\n#SBATCH --job-name={name}\n".format(
             cores = self.cores, name = self.name))
         if self.time != 0:
             fp.write(u"#SBATCH --time={time}\n".format(time = math.ceil(self.time / 60)))
@@ -1466,7 +1466,7 @@ class Batch:
             fp.write(u"rdir=\"`pwd`/{dir}\"\n".format(dir = self.dir))
             fp.write(u"test -d \"$rdir\" || mkdir \"$rdir\"\n")
         else:
-            fp.write(u"rdir=\"`pwd\"`\n")
+            fp.write(u"rdir=\"`pwd`\"\n")
 
         fp.write(u'''
 xml="$xdir/{xml}"
