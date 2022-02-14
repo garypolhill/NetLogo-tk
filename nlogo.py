@@ -1288,7 +1288,10 @@ class Sample:
             return self.setting
         elif self.minimum == self.maximum:
             if isinstance(self.param, Chooser):
-                return self.param.choices[int(self.maximum)]
+                if self.maximum.isnumeric():
+                    return self.param.choices[int(self.maximum)]
+                else:
+                    return self.maximum
             else:
                 return self.minimum
         else:
@@ -1303,7 +1306,13 @@ class Sample:
             elif self.datatype == "boolean":
                 return (rnd.random() < 0.5)
             else:
-                return self.setting
+                if isinstance(self.param, Chooser):
+                    if self.setting.isnumeric():
+                        return self.param.choices[int(self.setting)]
+                    else:
+                        return self.setting
+                else:
+                    return self.setting
 
     def setSample(self):
         self.param.setValue(self.sample())
