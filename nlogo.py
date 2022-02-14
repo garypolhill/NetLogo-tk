@@ -1288,7 +1288,9 @@ class Sample:
             return self.setting
         elif self.minimum == self.maximum:
             if isinstance(self.param, Chooser):
-                if self.maximum.isnumeric():
+                if self.datatype != "integer":
+                    return self.maximum
+                elif self.maximum.isnumeric():
                     return self.param.choices[int(self.maximum)]
                 else:
                     return self.maximum
