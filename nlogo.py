@@ -1255,8 +1255,8 @@ class NetlogoModel:
 class Sample:
     def __init__(self, param, datatype, setting, minimum, maximum):
         self.param = param
-        self.setting = setting
         self.datatype = datatype
+        self.setting = setting
         self.minimum = minimum
         self.maximum = maximum
 
@@ -1276,6 +1276,11 @@ class Sample:
             words = line.split(",")
             if words[0] in params:
                 param = params[words[0]]
+                if words[1] == "string":
+                    words[2] = "\"" + words[2] + "\""
+                    words[3] = "\"" + words[3] + "\""
+                    words[4] = "\"" + words[4] + "\""
+
                 samples.append(Sample(param, words[1], words[2], words[3], words[4]))
             else:
                 sys.stderr.write("Warning: parameter %s ignored\n" % words[0])
