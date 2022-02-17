@@ -1810,7 +1810,7 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         self.nanny = False
         self.java = os.getenv("JAVA_HOME", "/mnt/apps/java/jdk-17.0.1")
         self.nlogo_home_dir = "/mnt/apps/netlogo"
-        self.nlogov = "6.2.1"
+        self.nlogov = "6.2.2"
         self.project = ""
         self.max_batch = 10000
         self.batch_size = 5000
@@ -1834,6 +1834,7 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         if self.nlogo_invoke != "":
             return self.nlogo_invoke
         elif Options.cmpver(self.nlogov, "6.2.1") < 0:
+            # Prior to 6.2.1, the scripts had different nomenclature
             return "netlogo-headless-{cores}cpu-{gig}g.sh".format(
                 cores = self.cores(), gig = self.gigaram)
         else:
