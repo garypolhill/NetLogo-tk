@@ -862,7 +862,7 @@ class Experiment:
                 experiments.append(Experiment(new_name, self.setup, self.go,
                     self.final, self.timeLimit, self.exitCondition, use_metrics,
                     [], enumerated_values, reps, self.sequentialRunOrder,
-                    self.runMetricsEveryStep))
+                    self.runMetricsEveryStep, Batch.outdir(opts, self.name, i, n)))
                 i += 1
 
             for var in counters.keys():
@@ -1040,6 +1040,7 @@ class Experiment:
                 expt.addEnumeratedValue(param, Batch.outdir(opts, self.name, i, n))
             for param in opts.file_params:
                 expt.addEnumeratedValue(param, opts.getUniqueFilename(param, self.name, i, n))
+            expt.results = Batch.outdir(opts, self.name, i, n)
             expts.append(expt)
         return expts
 
