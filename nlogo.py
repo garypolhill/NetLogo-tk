@@ -379,6 +379,9 @@ class Plot(Output):
     def getPens(self):
         return self.pens.values()
 
+    def getPenDict(self):
+        return self.pens
+
 ################################################################################
 # Pen Class
 ################################################################################
@@ -787,6 +790,15 @@ class Experiment:
         self.results = results # Directory where any output should be
         self.addedProgress = (self.prog_comment in setup)
         self.addedFinalParametrics = (self.param_comment in final)
+
+    def getMetrics(self):
+        return self.metrics
+
+    def getSteppedParameters(self):
+        return self.steppedValueSet
+
+    def getEnumeratedParameters(self):
+        return self.enumeratedValueSet
 
     def getNRuns(self):
         runs = self.repetitions
@@ -1481,6 +1493,20 @@ class NetlogoModel:
             sys.stderr.write("Asked for setting of non-existent parameter \"{p}\"\n".format(parname))
             sys.exit(1)
 
+    def getMonitors(self):
+        monitors = {}
+        for w in self.widgets:
+            if(isinstance(w, Monitor)):
+                monitors[w.display] = w
+        return monitors
+
+    def getPlots(self):
+        plots = {}
+        for w in self.widgets:
+            if(isinstance(w, Plot)):
+                plots[w.display] = w
+        return plots
+
     def getExperiments(self):
         """
         Return the BehaviorSpace experiments as a dictionary keyed by name
@@ -2100,7 +2126,7 @@ class Options:
             elif len(self.cmd_args) < 3:
                 sys.stderr.write("montq needs at least three arguments\n")
                 sys.exit(1)
-        else:
+        elif self.cmd != "__GUI__":
             sys.stderr.write("Command \"{cmd}\" not recognized\n".format(cmd = self.cmd))
             sys.exit(1)
 
