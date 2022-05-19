@@ -87,8 +87,34 @@ import os
 import re
 import sys
 import math
+import shutil
 import random as rnd
 import xml.etree.ElementTree as xml
+
+def lineBreak(str, indent = "", tabstop = 8):
+    (width, height) = shutil.get_terminal_size(fallback = (80, 24))
+
+    indent = indent.replace("\t", " " * tabstop)
+    ret = []
+    line = 0
+    while len(str) > 0:
+        line += 1
+        ind = "" if line == 1 else indent
+        width_left = len(str) + len(ind)
+        if width_left <= width:
+            ret.append(ind + str)
+            str = ""
+        else:
+            lwd = width + len(ind)
+            lstr = str[:lwd]
+            str = str[lwd:]
+            space = lstr.rfind(" ")
+            if space < 0:
+                ret.append(ind + lstr)
+            else:
+                ret.append(ind + lstr[:space])
+                str = lstr[(space + 1):] + str
+    return ret
 
 ################################################################################
 # Widget Class
@@ -1591,6 +1617,9 @@ class NetlogoModel:
             print("Written " + str(len(splitted)) + " experiments to \"" + file + "\"")
             return len(splitted)
 
+    def getVersion(self):
+        return self.version
+
 ################################################################################
 # Sample Class
 #
@@ -1610,10 +1639,51 @@ class Sample:
     """
     def __init__(self, param, datatype, setting, minimum, maximum):
         self.param = param
-        self.setting = setting
         self.datatype = datatype
-        self.minimum = minimum
-        self.maximum = maximum
+        if isinstance(self.param, Chooser):
+            if minimum in param.choices:
+                self.minimum = param.choices.index(minimum)
+            elif '"' + minimum + '"' in param.choices:
+                self.minimum = param.choices.index('"' + minimum + '"')
+            elif minimum == "NA":
+                self.minimum = "NA"
+            elif not isinstance(minimum, int) or minimum < 0 or minimum >= length(param.choices):
+                sys.stderr.write("Error: {value} is not an option for chooser {var} ({opts})\n".format(
+                    value = minimum, var = param.varname,
+                    opts = ", ".join([str(x) for x in param.choices])))
+                sys.exit(1)
+            else:
+                self.minimum = minimum
+
+            if maximum in param.choices:
+                self.maximum = param.choices.index(maximum)
+            elif '"' + maximum + '"' in param.choices:
+                self.maximum = param.choices.index('"' + maximum + '"')
+            elif maximum == "NA":
+                self.maximum = "NA"
+            elif not isinstance(maximum, int) or maximum < 0 or maximum >= length(param.choices):
+                sys.stderr.write("Error: {value} is not an option for chooser {var} ({opts})\n".format(
+                    value = maximum, var = param.varname,
+                    opts = ", ".join([str(x) for x in param.choices])))
+                sys.exit(1)
+            else:
+                self.maximum = maximum
+
+            if setting in param.choices:
+                self.setting = param.choices.index(setting)
+            elif '"' + setting + '"' in param.choices:
+                self.setting = param.choices.index('"' + setting + '"')
+            elif not isinstance(setting, int) or setting < 0 or setting >= length(param.choices):
+                sys.stderr.write("Error: {value} is not an option for chooser {var} ({opts})\n".format(
+                    value = setting, var = param.varname,
+                    opts = ", ".join([str(x) for x in param.choices])))
+                sys.exit(1)
+            else:
+                self.setting = setting
+        else:
+            self.setting = setting
+            self.minimum = minimum
+            self.maximum = maximum
 
     @staticmethod
     def read(file_name, params):
@@ -1646,7 +1716,10 @@ class Sample:
         Make a random sample of the parameter
         """
         if self.minimum == "NA" or self.maximum == "NA":
-            return self.setting
+            if isinstance(self.param, Chooser):
+                return self.param.choices[self.setting]
+            else:
+                return self.setting
         elif self.minimum == self.maximum:
             if isinstance(self.param, Chooser):
                 return self.param.choices[int(self.maximum)]
@@ -1936,6 +2009,262 @@ class Batch:
         fp.close()
         os.chmod(file_name, 0o755)
 
+################################################################################
+# Option Class
+#
+#    ###   ####   #####  ###   ###   #   #
+#   #   #  #   #    #     #   #   #  ##  #
+#   #   #  ####     #     #   #   #  # # #
+#   #   #  #        #     #   #   #  #  ##
+#    ###   #        #    ###   ###   #   #
+#
+################################################################################
+
+class Option:
+    options = {}
+
+    def __init__(self, long_name, help_text, default,
+                 once = True, args = [], cmd = [], short_name = "", mutex = [], prereq = []):
+        self.long_name = long_name
+        self.help_text = help_text
+        self.default = default
+        self.args = args
+        self.n_args = len(args)
+        self.cmd = cmd
+        self.short_name = short_name
+        self.once = once
+        self.mutex = mutex
+        self.prereq = prereq
+        self.values = []
+        Option.addOption(self)
+
+    @staticmethod
+    def assigned(opt):
+        if "--" + opt in Option.options:
+            return len(Option.options["--" + opt].values) > 0
+        else:
+            sys.stderr.write("BUG! Option {o} not in dict".format(o = opt))
+            sys.exit(1)
+
+    def assign(self, value):
+        if self.once and len(self.values) > 1:
+            sys.stderr.write("You cannot use option {o} more than once\n".format(o = self.long_name))
+            sys.exit(1)
+        for opt in self.mutex:
+            if Option.assigned(opt):
+                sys.stderr.write("You cannot use option {o} if you've already used option {p}\n".format(
+                    o = self.long_name, p = opt))
+                sys.exit(1)
+        for opt in self.prereq:
+            if not Option.assigned(opt):
+                sys.stderr.write("Option {o} requires a value to have been set for option {p}\n".format(
+                    o = self.long_name, p = opt))
+                sys.exit(1)
+        self.values.append(value)
+
+    def valueStr(self):
+        if len(self.values) == 0:
+            return str(self.default)
+        elif self.once and len(self.args) <= 1:
+            return str(self.values[0])
+        else:
+            return self.values
+
+    def getHelp(self):
+        helpstr = "--" + self.long_name
+        if self.short_name != "":
+            helpstr += "/-" + self.short_name
+        for arg in self.args:
+            helpstr += " <" + arg + ">"
+        helpstr += ": " + self.help_text
+        if self.default != "":
+            helpstr += " (default \"" + str(self.default) + "\")"
+        return helpstr
+
+    @staticmethod
+    def parseOptions(args):
+        Option.initOptions()
+        i = 1
+        while i < len(args) and args[i][0] == "-":
+            opt = Option.get(args[i])
+            i += 1
+            if opt == None:
+                break
+            else:
+                if opt.n_args == 0:
+                    opt.assign(True)
+                elif opt.n_args == 1:
+                    opt.assign(args[i])
+                    i += 1
+                else:
+                    assigment = []
+                    for j in range(0, opt.n_args):
+                        assignment.append(args[i + j])
+                    opts.assign(assigment)
+                    i += opt.n_args
+        return i
+
+    @staticmethod
+    def printHelp(prefix = ""):
+        for opt in sorted(Option.options.keys()):
+            if opt[:2] == "--":
+                for line in lineBreak(prefix + Option.options[opt].getHelp(), "\t"):
+                    print(line)
+        print(prefix + "--: end options")
+
+    @staticmethod
+    def get(str):
+        if str in Option.options:
+            return Option.options[str]
+        elif "-" + str in Option.options:
+            return Option.options["-" + str]
+        elif "--" + str in Option.options:
+            return Option.options["--" + str]
+        elif str == "--":
+            return None
+        else:
+            sys.stderr.write("Option \"{opt}\" not recognized\n".format(opt = args[i]))
+            sys.exit(1)
+
+    @staticmethod
+    def addOption(opt):
+        if opt.long_name in Option.options:
+            sys.stderr.write("BUG! Duplication of long option \"{l}\"\n".format(o = opt.long_name))
+            sys.exit(1)
+        Option.options["--" + opt.long_name] = opt
+        if opt.short_name != "":
+            if len(opt.short_name) != 1:
+                sys.stderr.write("Short name \"{o}\" is too long\n".format(o = opt.short_name))
+                sys.exit(1)
+            if opt.short_name in Option.options:
+                sys.stderr.write("Duplication of short option \"{o}\"\n".format(o = opt.short_name))
+                sys.exit(1)
+            Option.options["-" + opt.short_name] = opt
+
+    @staticmethod
+    def scriptCmds():
+        return ["montq", "splitq"]
+
+    @staticmethod
+    def exptCmds():
+        return ["monte", "split", "montq", "splitq"]
+
+    @staticmethod
+    def initOptions():
+        Option("add-outdir", "add the output directory to the beginning of " +
+            "any parameter given with --file-param", False, cmd = Option.exptCmds(),
+             prereq = ["file-param"])
+        Option("batch-max", "maximum number of experiments to save in one XML file; " +
+            "the XML parser used in some versions of NetLogo can slow down " +
+            "significantly if this is more than 10000 (the default) or so. The " +
+            "script and experiment files will be split up into batches of size " +
+            "batch-size", 10000, args = ["n"], cmd = Option.exptCmds(), short_name = "b")
+        Option("batch-size", "if batch-max exceeded, experiments to save per XML " +
+            "file (should be less than or equal to batch-max, obvs.)", 5000, args = ["n"],
+            cmd = Option.exptCmds(), short_name = "B")
+        Option("dir", "directory to save results to. If you're making lots of runs, " +
+            "this can be a good way of keeping things tidy in your top-level model " +
+            "directory", ".", args = ["dir"], cmd = Option.exptCmds(), short_name = "d")
+        Option("dir-param", "specify the name of a parameter in your model that should " +
+            "be set to the results directory given with the --dir argument. If there " +
+            "are several such parameters, then this argument can be reused", "",
+            once = False, args = ["param"], cmd = Option.exptCmds())
+        Option("error", "file to save job submission script error stream to " +
+            "(output and error from the NetLogo command will be saved elsewhere)",
+            "/dev/null", args = ["file"], cmd = Option.scriptCmds(), short_name = "e")
+        Option("file-param", "specify the name of a parameter in your model that " +
+            "should be set to a unique name in the experiment configuration", "",
+            once = False, args = ["param"], cmd = Option.exptCmds())
+        Option("find-netlogo", "where to find NetLogo", "/mnt/apps/netlogo", args = ["dir"],
+            cmd = Option.scriptCmds(), short_name = "f")
+        Option("gibibytes", "amount of RAM expected to be needed to run the model " +
+            "(adjusts the invocation script used and hard memory limits in the job " +
+            "submission script; use --no-limit-ram if you don't want the latter)", 4,
+            args = ["n"], cmd = Option.scriptCmds(), short_name = "g")
+        Option("go", "use the given code as the go command rather than whatever " +
+            "is found in the go button (monte-carlo experiments only)", "", args = ["code"],
+            cmd = ["montq", "monte"])
+        Option("help", "print this message and exit", False, short_name = "h")
+        Option("headless", "use the default netlogo-headless.sh to invoke NetLogo",
+            False, cmd = Option.scriptCmds(), short_name = "H")
+        Option("invoke-netlogo", "use the specified NetLogo invocation script", "",
+            args = ["exe"], cmd = Option.scriptCmds(), short_name = "i")
+        Option("java", "where to find the JAVA Virtual Machine (dir/bin/java)",
+            os.getenv("JAVA_HOME", "/mnt/apps/java/jdk-17.0.1"), args = ["dir"],
+            cmd = Option.scriptCmds(), short_name = "j")
+        Option("job-name", "identifier to use for the job's name on the cluster " +
+            "(defaults to the name of the experiment file)", "", args = ["name"],
+            cmd = Option.scriptCmds(), short_name = "J")
+        Option("kill-days", "if the run isn't finished in n days, kill it; use 0 " +
+            "to let it run indefinitely", 1, args = ["n"], cmd = Option.scriptCmds(),
+            short_name = "k")
+        Option("limit-concurrent", "limit the number of concurrent runs on the " +
+            "cluster; can be useful if this will be a long-running job and you want " +
+            "to submit other stuff while this is running", 0, args = ["n"],
+            cmd = Option.scriptCmds(), short_name = "l")
+        Option("mc-expt", "experiment name stem to use for monte and montq " +
+            "commands", "x", args = ["name"], cmd = ["monte", "montq"], short_name = "x")
+        Option("nanny", "use the 'childminder' program to monitor the model runs; see " +
+            "https://github.com/garypolhill/nanny", False, cmd = Option.scriptCmds(),
+            short_name = "n", mutex = ["no-nanny"])
+        Option("no-final-save", "don't save the parameters and metrics to a CSV file as " +
+            "an added 'final' command", False, cmd = Option.exptCmds(), short_name = "F")
+        Option("no-limit-ram", "don't use --gibibytes to limit the RAM in the job " +
+            "submission script", False, cmd = Option.scriptCmds(), short_name = "G")
+        Option("no-nanny", "don't use the 'childminder' program", True, cmd = Option.scriptCmds(),
+            short_name = "N", mutex = ["nanny"])
+        Option("no-progress", "don't add progress files to experiments", False,
+            cmd = Option.exptCmds(), short_name = "P")
+        Option("no-task-limit", "your cluster has no limit to the number of tasks in a job " +
+            "submission script", False, cmd = Option.scriptCmds(), mutex = ["task-limit"])
+        Option("no-zip", "don't gzip the output file and table CSV file after the " +
+            "NetLogo run has finished", True, cmd = Option.scriptCmds(), short_name = "z",
+            mutex = ["zip"])
+        Option("output", "file to save job submission script output stream to " +
+            "(output and error from the NetLogo command will still be saved)",
+            "/dev/null", args = ["file"], cmd = Option.scriptCmds(), short_name = "o")
+        Option("project", "project to charge (in the script); in SGE this " +
+            "sets the -P option in the job submission script; in SLURM the --wckey",
+            "", args = ["project"], cmd = Option.scriptCmds(), short_name = "p")
+        Option("rng-no-switch", "specify the name of a parameter in your model " +
+            "that must be set to 'false' to get a new random seed for each run",
+            "", args = ["param"], cmd = Option.exptCmds(), mutex = ["rng-switch"])
+        Option("rng-param", "specify the name of a parameter in which the RNG seed " +
+            "is stored in your model -- this will be added to the metrics", "",
+            args = ["param"], cmd = Option.exptCmds())
+        Option("rng-switch", "specify the name of a parameter in your model that " +
+            "must be set to 'true' to get a new random seed for each run", "",
+            args = ["param"], cmd = Option.exptCmds(), mutex = ["rng-no-switch"])
+        Option("setup", "use the given code to set up rather than what is found in " +
+            "the setup button (Monte Carlo experiments only)", "", args = ["code"],
+            cmd = ["monte", "montq"])
+        Option("SGE", "create a Sun Grid Engine submission script", False,
+            cmd = Option.scriptCmds(), mutex = ["SLURM"])
+        Option("sleep-random", "each run should sleep random max n seconds before " +
+            "starting; this can be a good idea to stop hundreds of processes trying " +
+            "to access the same files at the same time", 0, args = ["n"],
+            cmd = Option.scriptCmds(), short_name = "s")
+        Option("SLURM", "create a SLURM submission script", True,
+            cmd = Option.scriptCmds(), mutex = ["SGE"])
+        Option("split-reps", "with the split and splitq commands, also split repetitions " +
+            "of parameter settings in the experiment", False, cmd = ["split", "splitq"])
+        Option("task-limit", "maximum size of a job array (or number of tasks) that " +
+            "can be submitted from a single script", 1000, args = ["n"],
+            cmd = Option.scriptCmds(), short_name = "L", mutex = ["no-task-limit"])
+        Option("threads", "use n threads in each simulation run for running the " +
+            "model; recommend 1 (the default), but this will be passed in the " +
+            "--threads option to NetLogo and affects the number of cores that will " +
+            "be requested for the run (with --threads-gc)", 1, args = ["n"],
+            cmd = Option.scriptCmds(), short_name = "t")
+        Option("threads-gc", "use n garbage collection threads (>= 2)", 3,
+            args = ["n"], cmd = Option.scriptCmds(), short_name = "T")
+        Option("version", "NetLogo version to use (e.g. 6.2.1)", "6.2.2",
+            args = ["version"], cmd = Option.scriptCmds(), short_name = "v")
+        Option("wait", "(SLURM only) queue n seconds from sbatch submission", 0,
+            args = ["n"], cmd = Option.scriptCmds(), short_name = "w")
+        Option("zip", "do gzip the output file and table CSV file after the NetLogo run " +
+            "has finished (and save space)", False, cmd = Option.scriptCmds(),
+            short_name = "Z", mutex = "no-zip")
 
 ################################################################################
 # Options Class
@@ -1950,139 +2279,68 @@ class Batch:
 
 class Options:
     def __init__(self, args):
-        self.defaults()
-        i = 1
-        while i < len(args) and args[i][0] == "-":
-            if args[i] == "--add-outdir":
-                self.add_outdir = True
-            elif args[i] == "--batch-max" or args[i] == "-b":
-                i += 1
-                self.max_batch = int(args[i])
-                if self.batch_size > self.max_batch:
-                    self.batch_size = self.max_batch
-            elif args[i] == "--batch-size" or args[i] == "-B":
-                i += 1
-                self.batch_size = int(args[i])
-            elif args[i] == "--dir" or args[i] == "-d":
-                i += 1
-                self.dir = args[i]
-            elif args[i] == "--dir-param":
-                i += 1
-                self.dir_params.append(args[i])
-            elif args[i] == "--error" or args[i] == "-e":
-                i += 1
-                self.err = args[i]
-            elif args[i] == "--file-param":
-                i += 1
-                self.file_params.append(args[i])
-            elif args[i] == "--find-netlogo" or args[i] == "-f":
-                i += 1
-                self.nlogo_home = args[i]
-            elif args[i] == "--gibibytes" or args[i] == "-g":
-                i += 1
-                self.gigaram = int(args[i])
-            elif args[i] == "--go":
-                i += 1
-                self.go = args[i]
-                self.user_go = True
-            elif args[i] == "--no-limit-ram" or args[i] == "-G":
-                self.limit_ram = False
-            elif args[i] == "--help" or args[i] == "-h":
-                self.help()
-            elif args[i] == "--headless" or args[i] == "-H":
-                self.nlogo_invoke = "netlogo-headless.sh"
-            elif args[i] == "--invoke-netlogo" or args[i] == "-i":
-                i += 1
-                self.nlogo_invoke = args[i]
-            elif args[i] == "--java" or args[i] == "-j":
-                i += 1
-                self.java = args[i]
-            elif args[i] == "--job-name" or args[i] == "-J":
-                i += 1
-                self.jobname = args[i]
-            elif args[i] == "--kill-days" or args[i] == "-k":
-                i += 1
-                self.days = float(args[i])
-            elif args[i] == "--limit-concurrent" or args[i] == "-l":
-                i += 1
-                self.concur = int(args[i])
-            elif args[i] == "--nanny" or args[i] == "-n":
-                self.nanny = True
-            elif args[i] == "--no-final-save" or args[i] == "-F":
-                self.save_csv = False
-            elif args[i] == "--no-nanny" or args[i] == "-N":
-                self.nanny = False
-            elif args[i] == "--no-progress" or args[i] == "-P":
-                self.progress = False
-            elif args[i] == "--no-task-limit":
-                self.task_limit = 0
-            elif args[i] == "--output" or args[i] == "-o":
-                i += 1
-                self.out = args[i]
-            elif args[i] == "--project" or args[i] == "-p":
-                i += 1
-                self.project = args[i]
-            elif args[i] == "--rng-switch":
-                i += 1
-                self.rng_switch = args[i]
-                if self.rng_no_switch != "":
-                    sys.stderr.write("--rng-switch setting of \"{r1}\" will " +
-                        "override --rng-no-switch setting of \"{r2}\"\n".format(
-                        r1 = self.rng_switch, r2 = self.rng_no_switch))
-                    self.rng_no_switch = ""
-            elif args[i] == "--rng-no-switch":
-                i += 1
-                self.rng_no_switch = args[i]
-                if self.rng_switch == "":
-                    sys.stderr.write("--rng-no-switch setting of \"{r1}\" " +
-                        "will override --rng-switch setting of \"{r2}\"\n".format(
-                        r1 = self.rng_no_switch, r2 = self.rng_switch))
-                    self.rng_switch = ""
-            elif args[i] == "--rng-param":
-                i += 1
-                self.rng_param = args[i]
-            elif args[i] == "--sleep-random" or args[i] == "-s":
-                i += 1
-                self.delay = int(args[i])
-            elif args[i] == "--setup":
-                i += 1
-                self.setup = args[i]
-                self.user_setup = True
-            elif args[i] == "--SGE":
-                self.cluster = "SGE"
-            elif args[i] == "--SLURM":
-                self.cluster = "SLURM"
-            elif args[i] == "--split-reps":
-                self.split_reps = True
-            elif args[i] == "--task-limit" or args[i] == "-L":
-                i += 1
-                self.task_limit = int(args[i])
-            elif args[i] == "--threads" or args[i] == "-t":
-                i += 1
-                self.threads = int(args[i])
-            elif args[i] == "--threads-gc" or args[i] == "-T":
-                i += 1
-                self.gc = int(args[i])
-            elif args[i] == "--version" or args[i] == "-v":
-                i += 1
-                self.nlogov = args[i]
-            elif args[i] == "--wait" or args[i] == "-w":
-                i += 1
-                self.wait = int(args[i])
-            elif args[i] == "--mc-expt" or args[i] == "-x":
-                i += 1
-                self.name = args[i]
-            elif args[i] == "--no-zip" or args[i] == "-z":
-                self.zip = False
-            elif args[i] == "--zip" or args[i] == "-Z":
-                self.zip = True
-            elif args[i] == "--":
-                i += 1
-                break
-            else:
-                sys.stderr.write("Option \"{opt}\" not recognized\n".format(opt = args[i]))
-                sys.exit(1)
-            i += 1
+        i = Option.parseOptions(args)
+
+        if Option.assigned("help"):
+            Options.help()
+
+        # Assign options from parsed command-line options/defaults
+
+        self.add_outdir = bool(Option.get("add-outdir").valueStr())
+        self.max_batch = int(Option.get("batch-max").valueStr())
+        self.batch_size = int(Option.get("batch-size").valueStr())
+        self.dir = Option.get("dir").valueStr()
+        self.dir_params = Option.get("dir-param").valueStr()
+        self.err = Option.get("error").valueStr()
+        self.file_params = Option.get("file-param").valueStr()
+        self.nlogo_home = Option.get("find-netlogo").valueStr()
+        self.gigaram = int(Option.get("gibibytes").valueStr())
+        self.go = Option.get("go").valueStr()
+        self.user_go = Option.assigned("go")
+        self.limit_ram = not bool(Option.get("no-limit-ram").valueStr())
+        if bool(Option.get("headless").valueStr()):
+            self.nlogo_invoke = "netlogo-headless.sh"
+        else:
+            self.nlogo_invoke = Option.get("invoke-netlogo").valueStr()
+        self.java = Option.get("java").valueStr()
+        self.jobname = Option.get("job-name").valueStr()
+        self.days = float(Option.get("kill-days").valueStr())
+        self.concur = int(Option.get("limit-concurrent").valueStr())
+        if Option.assigned("nanny") or not Option.assigned("no-nanny"):
+            self.nanny = bool(Option.get("nanny").valueStr())
+        else:
+            self.nanny = not bool(Option.get("no-nanny").valueStr())
+        self.save_csv = not bool(Option.get("no-final-save").valueStr())
+        self.progress = not bool(Option.get("no-progress").valueStr())
+        if Option.assigned("no-task-limit"):
+            self.task_limit = 0
+        else:
+            self.task_limit = int(Option.get("task-limit").valueStr())
+        self.out = Option.get("output").valueStr()
+        self.project = Option.get("project").valueStr()
+        self.rng_switch = Option.get("rng-switch").valueStr()
+        self.rng_no_switch = Option.get("rng-no-switch").valueStr()
+        self.rng_param = Option.get("rng-param").valueStr()
+        self.delay = int(Option.get("sleep-random").valueStr())
+        self.setup = Option.get("setup").valueStr()
+        self.user_setup = Option.assigned("setup")
+        self.cluster = "SLURM"
+        if bool(Option.get("SLURM").valueStr()):
+            self.cluster = "SLURM" # Deliberate reimplementation in case default changes
+        elif bool(Option.get("SGE").valueStr()):
+            self.cluster = "SGE"
+        self.split_reps = bool(Option.get("split-reps").valueStr())
+        self.threads = int(Option.get("threads").valueStr())
+        self.gc = int(Option.get("threads-gc").valueStr())
+        self.nlogov = Option.get("version").valueStr()
+        self.wait = int(Option.get("wait").valueStr())
+        self.name = Option.get("mc-expt").valueStr()
+        self.zip = bool(Option.get("zip").valueStr())
+        if Option.assigned("no-zip"):
+            self.zip = bool(Option.get("no-zip").valueStr())
+
+        # Parse command-line arguments
+
         self.model = args[i]
         i += 1
         self.cmd = args[i]
@@ -2132,90 +2390,12 @@ class Options:
 
     @staticmethod
     def help():
-        print('''Usage: [options] {cmd} <NetLogo model> <command> <command arguments...>
-    options (mostly relevant only for commands creating scripts):
+        print("Usage: [options] {cmd} <NetLogo model> <command> <command arguments...>\n".format(cmd = sys.argv[0]))
+        print("\toptions (mostly relevant only for commands creating scripts):")
 
-    --add-outdir: Add the output directory to the beginning of any parameter
-        given with --file-param
-    --batch-max/-b <n>: maximum number of experiments to save in one XML file;
-        the XML parser used in some versions of NetLogo can slow down
-        significantly if this is more than 10000 (the default) or so. The
-        script and experiment files will be split up into batches of size
-        batch-size.
-    --batch-size/-B <n>: if batch-max exceeded, experiments to save per XML
-        file (should be less than or equal to batch-max, obvs.)
-    --dir/-d <dir>: directory to save results to. If you're making lots of runs,
-        this can be a good way of keeping things tidy in your top-level model
-        directory.
-    --dir-param <param>: specify the name of a parameter in your model that should
-        be set to the results directory given with the --dir argument. If there
-        are several such parameters, then this argument can be reused.
-    --error/-e <file>: file to save job submission script error stream to
-        (output and error from the NetLogo command will be saved elsewhere)
-    --file-param <param>: specify the name of a parameter in your model that
-        should be set to a unique name in the experiment configuration.
-    --find-netlogo/-f <dir>: where to find NetLogo
-    --gibibytes/-g <n>: amount of RAM expected to be needed to run the model
-        (adjusts the invocation script used and hard memory limits in the job
-        submission script; use --no-limit-ram if you don't want the latter)
-    --go <code>: use the given code as the go command rather than whatever
-        is found in the go button (monte-carlo experiments only)
-    --no-limit-ram/-G: don't use --gibibytes to limit the RAM in the job
-        submission script
-    --headless/-H: use the default netlogo-headless.sh to invoke NetLogo
-    --help/-h: print this message and exit
-    --invoke-netlogo/-i <exe>: use the specified NetLogo invocation script
-    --java/-j <dir>: where to find the JAVA Virtual Machine (dir/bin/java)
-    --job-name/-J <name>: identifier to use for the job's name on the cluster
-        (defaults to the name of the experiment file)
-    --kill-days/-k <n>: if the run isn't finished in n days, kill it; use 0
-        to let it run indefinitely
-    --limit-concurrent/-l <n>: limit the number of concurrent runs on the
-        cluster; can be useful if this will be a long-running job and you want
-        to submit other stuff while this is running
-    --nanny/-n: use the 'childminder' program to monitor the model runs; see
-        https://github.com/garypolhill/nanny
-    --no-final-save/-F: don't save the parameters and metrics to a CSV file as
-        an added 'final' command
-    --no-nanny/-N: don't use the 'childminder' program
-    --no-progress/-P: don't add progress files to experiments
-    --no-task-limit: your cluster has no limit to the number of tasks in a job
-        submission script
-    --output/-o <file>: file to save job submission script output stream to
-        (output and error from the NetLogo command will still be saved)
-    --project/-p <project>: project to charge (in the script); in SGE this
-        sets the -P option in the job submission script; in SLURM the --wckey
-    --rng-switch <param>: specify the name of a parameter in your model that
-        must be set to 'true' to get a new random seed for each run
-    --rng-no-switch <param>: specify the name of a parameter in your model
-        that must be set to 'false' to get a new random seed for each run
-    --rng-param <param>: specify the name of a parameter in which the RNG seed
-        is stored in your model
-    --sleep-random/-s <n>: each run should sleep random max n seconds before
-        starting; this can be a good idea to stop hundreds of processes trying
-        to access the same files at the same time
-    --setup <code>: use the given code to set up rather than what is found in
-        the setup button (monte carlo experiments only)
-    --SGE: create a Sun Grid Engine submission script
-    --SLURM: create a SLURM submission script (the default)
-    --split-reps: with the split and splitq commands, also split repetitions
-        of parameter settings in the experiment
-    --task-limit/-T <n>: maximum size of a job array (or number of tasks) that
-        can be submitted from a single script
-    --threads/-t <n>: use n threads in each simulation run for running the
-        model; recommend 1 (the default), but this will be passed in the
-        --threads option to NetLogo and affects the number of cores that will
-        be requested for the run (with --threads-gc)
-    --threads-gc/-T <n>: use n garbage collection threads (>= 2)
-    --version/-v <version>: NetLogo version to use (e.g. 6.2.1)
-    --wait/-w <n>: (SLURM only) queue n seconds from sbatch submission
-    --mc-expt/-x <name>: experiment name stem to use for monte and montq
-        commands
-    --no-zip/-z: don't gzip the output file and table CSV file after the
-        NetLogo run has finished
-    --zip/-Z: do gzip the output file and table CSV file after the NetLogo run
-        has finished (and save space)
+        Option.printHelp("  ")
 
+        print('''
     If you're not using The James Hutton Institute's agent-based modelling
     cluster, you will probably need to specify --find-netlogo and --java,
     with --headless given to use the default NetLogo headless invocation
@@ -2282,7 +2462,7 @@ Grid Engine, or sbatch <script> on SLURM. On Hutton machines, if you haven't
 used --project to specify in the submission script which account to accumulate
 the CPU cycles in, you'll need to do this on the command line with qsub -P
 <project> <script> on SGE, or sbatch --wckey=<project> <script> with SLURM.
-'''.format(cmd = sys.argv[0]))
+''')
         sys.exit(0)
 
     def args(self):
@@ -2355,7 +2535,6 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         self.split_reps = False
         self.task_limit = 1000
         self.netlogo_object = None
-        self.add_outdir = False
 
     def isParamSet(self, param_name):
         if self.rng_switch != "" and self.rng_switch == param_name:

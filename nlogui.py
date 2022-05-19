@@ -62,7 +62,7 @@ class GUI:
     So, there are two columns and seven rows
     """
 
-    no_file_chosen_text = "(Use 'Open' to choose a NetLogo file)"
+    no_file_chosen_text = "(Open a NetLogo file)"
     default_cmd = "nlogo.py"
 
     def __init__(self):
@@ -79,7 +79,7 @@ class GUI:
         self.toolframe = ttk.Frame(self.mainframe)
         self.modelframe = ttk.Frame(self.mainframe)
         self.cmdframe = ttk.Frame(self.mainframe)
-        self.treeframe = ttk.Frame(self.mainframe)
+        treewidget = self.tree(self.mainframe)
         self.workframe = ttk.Frame(self.mainframe)
         self.infoframe = ttk.Frame(self.mainframe)
         self.outframe = ttk.Frame(self.mainframe)
@@ -88,16 +88,15 @@ class GUI:
         self.toolframe.grid(column = 0, row = 0, columnspan = 2, sticky = "nsew")
         self.modelframe.grid(column = 0, row = 1, columnspan = 2, sticky = "nsew")
         self.cmdframe.grid(column = 1, row = 2, sticky = "nsew")
-        self.treeframe.grid(column = 0, row = 2, rowspan = 4, sticky = "nsew")
+        treewidget.grid(column = 0, row = 2, rowspan = 4, sticky = "nsew")
         self.workframe.grid(column = 1, row = 3, sticky = "nsew")
         self.infoframe.grid(column = 1, row = 4, sticky = "nsew")
         self.outframe.grid(column = 1, row = 5, sticky = "nsew")
-        self.msglabel.grid(column = 0, row = 6, columnspan = 2, sticky = "w")
+        self.msglabel.grid(column = 0, row = 6, columnspan = 2, sticky = "nsw")
 
         self.toolbar(self.toolframe)
         self.model(self.modelframe)
         self.command(self.cmdframe)
-        self.tree(self.treeframe)
 
         for child in self.mainframe.winfo_children():
             child.grid_configure(padx = 5, pady = 5)
@@ -159,11 +158,20 @@ class GUI:
         window['menu'] = self.menubar
 
     def toolbar(self, frame):
-        self.openbutton = ttk.Button(frame, text = "Open", command = self.openModel)
-        self.openbutton.grid(column = 1, row = 0)
+        self.splitbutton = ttk.Button(frame, text = "Split", command = self.splitExperiment)
+        self.splitbutton.state(['disabled'])
+        self.splitbutton.grid(column = 1, row = 0)
 
-        self.copybutton = ttk.Button(frame, text = "Copy", command = self.copyCommand)
-        self.copybutton.grid(column = 2, row = 0)
+        self.montebutton = ttk.Button(frame, text = "Monte", command = self.monteExperiment)
+        self.montebutton.state(['disabled'])
+        self.montebutton.grid(column = 2, row = 0)
+
+        self.build_script = BooleanVar(value = True)
+        self.scriptcheck = ttk.Checkbutton(frame, text = "Create Submission Script",
+            variable = self.build_script, onvalue = True, offvalue = False)
+        self.scriptcheck.grid(column = 3, row = 0)
+
+        return frame
 
     def model(self, frame):
         label = ttk.Label(frame, text = "Model:")
@@ -171,6 +179,8 @@ class GUI:
 
         self.filelabel = ttk.Label(frame, text = GUI.no_file_chosen_text)
         self.filelabel.grid(column = 1, row = 0)
+
+        return self.filelabel
 
     def command(self, frame):
         label = ttk.Label(frame, text = "Command:")
@@ -182,6 +192,8 @@ class GUI:
         self.runbutton = ttk.Button(frame, text = "Run", command = self.runCommand)
         self.runbutton.grid(column = 2, row = 0, sticky = "e")
 
+        return frame
+
     def newtree(self, tree):
         self.exptnode = tree.insert('', 'end', 'expts', text = 'Experiments')
         self.paramnode = tree.insert('', 'end', 'params', text = 'Parameters')
@@ -191,7 +203,7 @@ class GUI:
     def tree(self, frame):
         self.tree = ttk.Treeview(frame, selectmode = "browse")
         self.newtree(self.tree)
-        self.tree.grid(column = 0, row = 1, sticky = "nsew")
+        return self.tree
 
     def retree(self, nlogo):
         self.tree.delete('expts')
@@ -199,33 +211,98 @@ class GUI:
         self.tree.delete('monitors')
         self.tree.delete('plots')
         self.newtree(self.tree)
+        self.treedict = {}
         self.expts = nlogo.getExperiments()
         for name in sorted(self.expts.keys()):
-            expt = self.tree.insert('expts', 'end', text = name)
+            expt = self.tree.insert('expts', 'end', text = name, tags = ('tree-expt'))
+            self.treedict[expt] = ('__expt__', name)
             xstep = self.tree.insert(expt, 'end', text = 'Stepped Parameters')
             for param in self.expts[name].getSteppedParameters():
-                self.tree.insert(xstep, 'end', text = param.variable)
+                id = self.tree.insert(xstep, 'end', text = param.variable, tags = ('tree-expt-step'))
+                self.treedict[id] = ('__step__', name, param.variable)
             xenum = self.tree.insert(expt, 'end', text = 'Enumerated Parameters')
             for param in self.expts[name].getEnumeratedParameters():
-                self.tree.insert(xenum, 'end', text = param.variable)
+                id = self.tree.insert(xenum, 'end', text = param.variable, tags = ('tree-expt-enum'))
+                self.treedict[id] = ('__enum__', name, param.variable)
             xmetx = self.tree.insert(expt, 'end', text = 'Metrics')
             for metc in self.expts[name].getMetrics():
-                self.tree.insert(xmetx, 'end', text = metc)
-
+                id = self.tree.insert(xmetx, 'end', text = metc, tags = ('tree-expt-metx'))
+                self.treedict[id] = ('__metric__', name, param.variable)
 
         self.params = nlogo.getParameters()
         for name in sorted(self.params.keys()):
-            self.tree.insert('params', 'end', text = name)
+            id = self.tree.insert('params', 'end', text = name, tags = ('tree-param'))
+            self.treedict[id] = ('__parameter__', name)
 
         self.monitors = nlogo.getMonitors()
         for name in sorted(self.monitors.keys()):
-            self.tree.insert('monitors', 'end', text = name)
+            id = self.tree.insert('monitors', 'end', text = name, tags = ('tree-mon'))
+            self.treedict[id] = ('__monitor__', name)
 
         self.plots = nlogo.getPlots()
         for name in sorted(self.plots.keys()):
-            plot = self.tree.insert('plots', 'end', text = name)
+            plot = self.tree.insert('plots', 'end', text = name, tags = ('tree-plot'))
+            self.treedict[plot] = ('__plot__', name)
             for pen in sorted(self.plots[name].getPenDict().keys()):
-                self.tree.insert(plot, 'end', text = pen)
+                id = self.tree.insert(plot, 'end', text = pen, tags = ('tree-plot-pen'))
+                self.treedict[id] = ('__plot_pen__', name, pen)
+
+        self.tree.tag_bind('tree-expt', '<1>', self.treeClickExpt)
+        self.tree.tag_bind('tree-expt-step', '<1>', self.treeClickExptStep)
+        self.tree.tag_bind('tree-expt-enum', '<1>', self.treeClickExptEnum)
+        self.tree.tag_bind('tree-expt-metx', '<1>', self.treeClickExptMetric)
+        self.tree.tag_bind('tree-param', '<1>', self.treeClickParameter)
+        self.tree.tag_bind('tree-mon', '<1>', self.treeClickMonitor)
+        self.tree.tag_bind('tree-plot', '<1>', self.treeClickPlot)
+        self.tree.tag_bind('tree-plot-pen', '<1>', self.treeClickPlotPen)
+
+    def treeClickExpt(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, expt) = self.treedict[id]
+            print("You clicked on experiment {e}".format(e = expt))
+
+    def treeClickExptStep(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, expt, par) = self.treedict[id]
+            print("You clicked on stepped parameter {p} in experiment {e}".format(e = expt, p = par))
+
+    def treeClickExptEnum(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, expt, par) = self.treedict[id]
+            print("You clicked on enumerated parameter {p} in experiment {e}".format(e = expt, p = par))
+
+    def treeClickExptMetric(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, expt, metc) = self.treedict[id]
+            print("You clicked on metric {m} in experiment {e}".format(e = expt, m = metc))
+
+    def treeClickParameter(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, param) = self.treedict[id]
+            print("You clicked on parameter {p}".format(p = param))
+
+    def treeClickMonitor(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, mon) = self.treedict[id]
+            print("You clicked on monitor {m}".format(m = mon))
+
+    def treeClickPlot(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, plot) = self.treedict[id]
+            print("You clicked on plot {p}".format(p = plot))
+
+    def treeClickPlotPen(self, event):
+        id = self.tree.focus()
+        if id in self.treedict:
+            (x, plot, pen) = self.treedict[id]
+            print("You clicked on pen {pp} in plot {p}".format(p = plot, pp = pen))
 
     def openModel(self):
         self.msglabel['text'] = "Getting filename..."
@@ -238,6 +315,8 @@ class GUI:
             self.opts = nl.Options(["nlogui.py", filename, "__GUI__"])
             self.nlogo = nl.NetlogoModel.read(self.opts)
             self.retree(self.nlogo)
+            self.splitbutton.state(['!disabled'])
+            self.montebutton.state(['!disabled'])
             self.msglabel['text'] = "Read " + os.path.basename(filename)
         else:
             self.msglabel['text'] = "File open cancelled"
@@ -271,6 +350,18 @@ class GUI:
     def keyOpenModel(self, event):
         if self.modifierDown():
             self.openModel()
+
+    def monteExperiment(self):
+        if self.build_script.get():
+            print("You asked for a Monte Carlo experiment with script built")
+        else:
+            print("You asked for a Monte Carlo experiment without script")
+
+    def splitExperiment(self):
+        if self.build_script.get():
+            print("You asked to split an experiment with script built")
+        else:
+            print("You asked to split an experiment without script")
 
 
 ################################################################################
