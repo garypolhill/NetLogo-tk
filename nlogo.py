@@ -2175,7 +2175,7 @@ class Option:
         Option("file-param", "specify the name of a parameter in your model that " +
             "should be set to a unique name in the experiment configuration", "",
             once = False, args = ["param"], cmd = Option.exptCmds())
-        Option("find-netlogo", "where to find NetLogo", "/mnt/apps/netlogo", args = ["dir"],
+        Option("find-netlogo", "where to find NetLogo", "/mnt/apps/netlogo",
             cmd = Option.scriptCmds(), short_name = "f")
         Option("gibibytes", "amount of RAM expected to be needed to run the model " +
             "(adjusts the invocation script used and hard memory limits in the job " +
@@ -2333,6 +2333,16 @@ class Options:
         self.threads = int(Option.get("threads").valueStr())
         self.gc = int(Option.get("threads-gc").valueStr())
         self.nlogov = Option.get("version").valueStr()
+        if not Option.assigned("find-netlogo"):
+            self.nlogo_home = self.nlogo_home + "-" + self.nlogov
+        if not Option.assigned("invoke-netlogo") and not Option.assigned("headless"):
+            if Options.cmpver(self.nlogov, "6.2.1") < 0:
+                self.nlogo_invoke = "netlogo-headless-{cores}cpu-{gig}g.sh".format(
+                    cores = self.cores(), gig = self.gigaram)
+            else:
+                self.nlogo_invoke = "netlogo-headless-{gc}gc-{gig}Gi.sh".format(
+                    gc = self.gc, gig = self.gigaram)
+
         self.wait = int(Option.get("wait").valueStr())
         self.name = Option.get("mc-expt").valueStr()
         self.zip = bool(Option.get("zip").valueStr())
@@ -2496,46 +2506,6 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         else:
             return 0
 
-    def defaults(self):
-        self.cluster = "SLURM"
-        self.gigaram = 4
-        self.dir = "."
-        self.concur = 0
-        self.threads = 1
-        self.gc = 3
-        self.out = "/dev/null"
-        self.err = "/dev/null"
-        self.zip = False
-        self.delay = 0
-        self.days = 1
-        self.nanny = False
-        self.java = os.getenv("JAVA_HOME", "/mnt/apps/java/jdk-17.0.1")
-        self.nlogo_home_dir = "/mnt/apps/netlogo"
-        self.nlogov = "6.2.2"
-        self.project = ""
-        self.max_batch = 10000
-        self.batch_size = 5000
-        self.name = "x"
-        self.wait = 0
-        self.nlogo_home = ""
-        self.nlogo_invoke = ""
-        self.limit_ram = True
-        self.jobname = ""
-        self.progress = True
-        self.user_setup = False
-        self.setup = ""
-        self.user_go = False
-        self.go = ""
-        self.save_csv = True
-        self.dir_params = []
-        self.file_params = []
-        self.rng_switch = ""
-        self.rng_no_switch = ""
-        self.rng_param = ""
-        self.split_reps = False
-        self.task_limit = 1000
-        self.netlogo_object = None
-
     def isParamSet(self, param_name):
         if self.rng_switch != "" and self.rng_switch == param_name:
             return True
@@ -2550,10 +2520,7 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         return self.threads + self.gc
 
     def nlogoHome(self):
-        if self.nlogo_home != "":
-            return self.nlogo_home
-        return os.getenv("NETLOGO_HOME", "{dir}-{ver}".format(
-            dir = self.nlogo_home_dir, ver = self.nlogov))
+        return self.nlogo_home
 
     def invokeScript(self):
         if self.nlogo_invoke != "":
