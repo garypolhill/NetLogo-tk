@@ -257,49 +257,49 @@ class GUI:
         self.tree.tag_bind('tree-plot-pen', '<1>', self.treeClickPlotPen)
 
     def treeClickExpt(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, expt) = self.treedict[id]
             print("You clicked on experiment {e}".format(e = expt))
 
     def treeClickExptStep(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, expt, par) = self.treedict[id]
             print("You clicked on stepped parameter {p} in experiment {e}".format(e = expt, p = par))
 
     def treeClickExptEnum(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, expt, par) = self.treedict[id]
             print("You clicked on enumerated parameter {p} in experiment {e}".format(e = expt, p = par))
 
     def treeClickExptMetric(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, expt, metc) = self.treedict[id]
             print("You clicked on metric {m} in experiment {e}".format(e = expt, m = metc))
 
     def treeClickParameter(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, param) = self.treedict[id]
             print("You clicked on parameter {p}".format(p = param))
 
     def treeClickMonitor(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, mon) = self.treedict[id]
             print("You clicked on monitor {m}".format(m = mon))
 
     def treeClickPlot(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, plot) = self.treedict[id]
             print("You clicked on plot {p}".format(p = plot))
 
     def treeClickPlotPen(self, event):
-        id = self.tree.focus()
+        id = self.tree.identify_row(event.y)
         if id in self.treedict:
             (x, plot, pen) = self.treedict[id]
             print("You clicked on pen {pp} in plot {p}".format(p = plot, pp = pen))
