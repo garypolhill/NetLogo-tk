@@ -115,6 +115,19 @@ to-report knuth-random-f [ df-1 df-2 ]
   let y knuth-random-beta (df-1 / 2) (df-2 / 2)
   report (df-2 * y) / (df-1 * (1 - y))
 end
+
+to set-beta-parameters
+  let m desired-beta-mean
+  let v desired-beta-variance
+
+  if v > m * (1 - m) [
+    error (word "The variance is too high for the mean. Set v to no more than " (m * (1 - m)))
+  ]
+
+  set distribution "beta"
+  set p-1 (((m ^ 2) * (1 - m)) / v) - m
+  set p-2 p-1 * ((1 - m) / m)
+end
 @#$#@#$#@
 GRAPHICS-WINDOW
 215
@@ -204,7 +217,7 @@ INPUTBOX
 112
 242
 p-1
-0.5
+-0.4987499999999996
 1
 0
 Number
@@ -215,7 +228,7 @@ INPUTBOX
 212
 242
 p-2
-4.0
+-0.026250000000000006
 1
 0
 Number
@@ -338,6 +351,89 @@ NIL
 NIL
 NIL
 1
+
+MONITOR
+14
+695
+124
+740
+Measured mean
+mean [sampled-variable] of turtles
+10
+1
+11
+
+MONITOR
+127
+695
+255
+740
+Measured variance
+variance [sampled-variable] of turtles
+10
+1
+11
+
+INPUTBOX
+259
+695
+408
+755
+desired-beta-mean
+0.95
+1
+0
+Number
+
+INPUTBOX
+411
+695
+560
+755
+desired-beta-variance
+0.1
+1
+0
+Number
+
+BUTTON
+564
+695
+651
+728
+Set Beta
+set-beta-parameters
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+MONITOR
+259
+758
+407
+803
+expected-beta-mean
+p-1 / (p-1 + p-2)
+10
+1
+11
+
+MONITOR
+411
+758
+559
+803
+expected-beta-variance
+(p-1 * p-2) / (((p-1 + p-2) ^ 2) * (p-1 + p-2 + 1))
+10
+1
+11
 
 @#$#@#$#@
 # Code for sampling from various continuous distributions
