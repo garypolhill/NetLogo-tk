@@ -24,6 +24,12 @@ to go
       ifelse-value use-knuth-gamma? [ knuth-random-gamma p-1 ] [ random-gamma p-1 1 ]
     ] (distribution = "beta") [
       ifelse-value use-knuth-gamma? [ knuth-random-beta p-1 p-2 ] [ random-beta p-1 p-2 ]
+    ] (distribution = "scaled-beta") [
+      ifelse-value use-knuth-gamma? [
+        knuth-random-scaled-beta p-1 p-2 desired-beta-minimum desired-beta-maximum
+      ] [
+        random-scaled-beta p-1 p-2 desired-beta-minimum desired-beta-maximum
+      ]
     ] (distribution = "Chi-square") [
       ifelse-value use-knuth-gamma? [ knuth-random-chi-square p-1 ] [ random-chi-square p-1 ]
     ] (distribution = "F") [
@@ -56,6 +62,12 @@ to-report random-beta [ alpha beta ]
   let x_2 random-gamma beta 1
   report x_1 / (x_1 + x_2)
 end
+
+to-report random-scaled-beta [ alpha beta minimum maximum ]
+  let sample random-beta alpha beta
+  report ((maximum - minimum) * sample) + minimum
+end
+
 
 to-report random-chi-square [ df ]
   let y random-gamma (df / 2) 1
@@ -107,6 +119,11 @@ to-report knuth-random-beta [ a b ]
   ]
 end
 
+to-report knuth-random-scaled-beta [ a b minimum maximum ]
+  let sample knuth-random-beta a b
+  report ((maximum - minimum) * sample) + minimum
+end
+
 to-report knuth-random-chi-square [ df ]
   report 2 * (knuth-random-gamma (df / 2))
 end
@@ -120,13 +137,52 @@ to set-beta-parameters
   let m desired-beta-mean
   let v desired-beta-variance
 
-  if v > m * (1 - m) [
+  if v >= m * (1 - m) [
     error (word "The variance is too high for the mean. Set v to no more than " (m * (1 - m)))
   ]
 
   set distribution "beta"
   set p-1 (((m ^ 2) * (1 - m)) / v) - m
   set p-2 p-1 * ((1 - m) / m)
+end
+
+to set-scaled-beta-parameters
+  let m desired-beta-mean
+  let v desired-beta-variance
+  let a desired-beta-minimum
+  let c desired-beta-maximum
+
+  if v >= (m - a) * (c - m) [
+    error (word "The variance is too high given the mean, minimum and maximum")
+  ]
+
+  set distribution "scaled-beta"
+
+  let fraction ((a * c) - (a * m) - (c * m) + (m ^ 2) + v) / (v * (c - a))
+  set p-1 (a - m) * fraction
+  set p-2 (m - c) * fraction
+end
+
+to-report min-delta-1
+  let m desired-beta-mean
+  let v desired-beta-variance
+  let a desired-beta-minimum
+  let c desired-beta-maximum
+
+  report max (list 0 (((a * c) + v + (m * (m - c - a)) - (delta-2 * (m - a))) / (c - m + delta-2)) )
+
+end
+
+to set-delta-1
+  set delta-1 max (list delta-1 min-delta-1)
+end
+
+to-report desired-beta-minimum
+  report beta-minimum - delta-1
+end
+
+to-report desired-beta-maximum
+  report beta-maximum + delta-2
 end
 @#$#@#$#@
 GRAPHICS-WINDOW
@@ -197,8 +253,8 @@ CHOOSER
 96
 distribution
 distribution
-"gamma" "beta" "Chi-square" "F"
-1
+"gamma" "beta" "scaled-beta" "Chi-square" "F"
+2
 
 SWITCH
 14
@@ -217,7 +273,7 @@ INPUTBOX
 112
 242
 p-1
--0.4987499999999996
+1.457337792642137
 1
 0
 Number
@@ -228,7 +284,7 @@ INPUTBOX
 212
 242
 p-2
--0.026250000000000006
+1.1739665551839438
 1
 0
 Number
@@ -239,7 +295,7 @@ INPUTBOX
 112
 327
 sample-px-min
-0.0
+2.4
 1
 0
 Number
@@ -250,7 +306,7 @@ INPUTBOX
 212
 327
 sample-px-max
-1.0
+4.91
 1
 0
 Number
@@ -264,7 +320,7 @@ Sampled Variable Distribution
 NIL
 NIL
 0.0
-1.0
+5.0
 0.0
 1.0
 true
@@ -380,7 +436,7 @@ INPUTBOX
 408
 755
 desired-beta-mean
-0.95
+3.84
 1
 0
 Number
@@ -391,7 +447,7 @@ INPUTBOX
 560
 755
 desired-beta-variance
-0.1
+0.46
 1
 0
 Number
@@ -419,7 +475,7 @@ MONITOR
 407
 803
 expected-beta-mean
-p-1 / (p-1 + p-2)
+ifelse-value (distribution = \"scaled-beta\") [\n  desired-beta-minimum + ((desired-beta-maximum - desired-beta-minimum) * (p-1 / (p-1 + p-2)))\n] [\n  p-1 / (p-1 + p-2)\n]
 10
 1
 11
@@ -430,7 +486,115 @@ MONITOR
 559
 803
 expected-beta-variance
-(p-1 * p-2) / (((p-1 + p-2) ^ 2) * (p-1 + p-2 + 1))
+ifelse-value (distribution = \"scaled-beta\") [\n  ((desired-beta-maximum - desired-beta-minimum) ^ 2) * ((p-1 * p-2) / (((p-1 + p-2) ^ 2) * (p-1 + p-2 + 1)))\n] [\n  (p-1 * p-2) / (((p-1 + p-2) ^ 2) * (p-1 + p-2 + 1))\n]
+10
+1
+11
+
+INPUTBOX
+259
+806
+408
+866
+beta-minimum
+2.4
+1
+0
+Number
+
+INPUTBOX
+411
+806
+560
+866
+beta-maximum
+4.91
+1
+0
+Number
+
+SLIDER
+259
+868
+408
+901
+delta-1
+delta-1
+0
+10
+0.0
+0.01
+1
+NIL
+HORIZONTAL
+
+SLIDER
+411
+868
+560
+901
+delta-2
+delta-2
+0
+10
+0.09
+0.01
+1
+NIL
+HORIZONTAL
+
+MONITOR
+128
+857
+256
+902
+NIL
+min-delta-1
+10
+1
+11
+
+BUTTON
+563
+806
+650
+839
+Scaled Beta
+set-scaled-beta-parameters
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+BUTTON
+563
+868
+649
+901
+Auto delta-1
+set-delta-1
+NIL
+1
+T
+OBSERVER
+NIL
+NIL
+NIL
+NIL
+1
+
+MONITOR
+102
+757
+255
+802
+maximum-beta-variance
+ifelse-value (distribution = \"scaled-beta\") [\n  (desired-beta-mean - desired-beta-minimum) * (desired-beta-maximum - desired-beta-mean)\n] [\n  desired-beta-mean * (1 - desired-beta-mean)\n]
 10
 1
 11
