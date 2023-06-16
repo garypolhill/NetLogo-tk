@@ -1759,7 +1759,7 @@ class Sample:
             elif minimum == "NA":
                 self.minimum = "NA"
             elif not isinstance(minimum, int) or minimum < 0 or minimum >= len(param.choices):
-                sys.stderr.write("Error: {value} is not an option for chooser {var} ({opts})\n".format(
+                sys.stderr.write("Error: minimum {value} is not an option for chooser {var} ({opts})\n".format(
                     value = minimum, var = param.varname,
                     opts = ", ".join([str(x) for x in param.choices])))
                 sys.exit(1)
@@ -1773,7 +1773,7 @@ class Sample:
             elif maximum == "NA":
                 self.maximum = "NA"
             elif not isinstance(maximum, int) or maximum < 0 or maximum >= len(param.choices):
-                sys.stderr.write("Error: {value} is not an option for chooser {var} ({opts})\n".format(
+                sys.stderr.write("Error: maximum {value} is not an option for chooser {var} ({opts})\n".format(
                     value = maximum, var = param.varname,
                     opts = ", ".join([str(x) for x in param.choices])))
                 sys.exit(1)
@@ -1785,7 +1785,7 @@ class Sample:
             elif ('"' + setting + '"') in param.choices:
                 self.setting = param.choices.index('"' + setting + '"')
             elif not isinstance(setting, int) or setting < 0 or setting >= len(param.choices):
-                sys.stderr.write("Error: {value} is not an option for chooser {var} ({opts})\n".format(
+                sys.stderr.write("Error: setting {value} is not an option for chooser {var} ({opts})\n".format(
                     value = setting, var = param.varname,
                     opts = ", ".join([str(x) for x in param.choices])))
                 sys.exit(1)
