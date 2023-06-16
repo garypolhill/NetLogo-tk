@@ -1754,7 +1754,7 @@ class Sample:
             
             if minimum in param.choices:
                 self.minimum = param.choices.index(minimum)
-            elif '"' + minimum + '"' in param.choices:
+            elif ('"' + minimum + '"') in param.choices:
                 self.minimum = param.choices.index('"' + minimum + '"')
             elif minimum == "NA":
                 self.minimum = "NA"
@@ -1768,7 +1768,7 @@ class Sample:
 
             if maximum in param.choices:
                 self.maximum = param.choices.index(maximum)
-            elif '"' + maximum + '"' in param.choices:
+            elif ('"' + maximum + '"') in param.choices:
                 self.maximum = param.choices.index('"' + maximum + '"')
             elif maximum == "NA":
                 self.maximum = "NA"
@@ -1782,7 +1782,7 @@ class Sample:
 
             if setting in param.choices:
                 self.setting = param.choices.index(setting)
-            elif '"' + setting + '"' in param.choices:
+            elif ('"' + setting + '"') in param.choices:
                 self.setting = param.choices.index('"' + setting + '"')
             elif not isinstance(setting, int) or setting < 0 or setting >= len(param.choices):
                 sys.stderr.write("Error: {value} is not an option for chooser {var} ({opts})\n".format(
