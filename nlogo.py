@@ -1746,7 +1746,7 @@ class Sample:
         self.datatype = datatype
         # TO-DO: update this to handle 'minimum' == 'one-of'
         if isinstance(self.param, Chooser):
-            print("minimum is \"" + minimum + "\", with type " + type(minimum) + "\n")
+            print("minimum is \"" + minimum + "\", with type " + str(type(minimum)) + "\n")
             if minimum in param.choices:
                 self.minimum = param.choices.index(minimum)
             elif '"' + minimum + '"' in param.choices:
