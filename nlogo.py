@@ -1749,6 +1749,9 @@ class Sample:
             print("minimum is \"" + minimum + "\", with type " + str(type(minimum)) + "\n")
             for x in param.choices:
                 print("choice \"" + x + "\" has type " + str(type(x)))
+                if x == '"' + minimum + '"':
+                    print("it is the choice we made")
+            
             if minimum in param.choices:
                 self.minimum = param.choices.index(minimum)
             elif '"' + minimum + '"' in param.choices:
