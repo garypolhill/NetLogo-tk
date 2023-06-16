@@ -117,6 +117,35 @@ def lineBreak(str, indent = "", tabstop = 8):
     return ret
 
 ################################################################################
+# NLogoError Class
+#
+#   #   #  #       ###    ####   ###   #####  ####   ####    ###   ####
+#   ##  #  #      #   #  #      #   #  #      #   #  #   #  #   #  #   #
+#   # # #  #      #   #  # ###  #   #  ####   ####   ####   #   #  ####
+#   #  ##  #      #   #  #   #  #   #  #      #   #  #   #  #   #  #   #
+#   #   #  #####   ###    ###    ###   #####  #   #  #   #   ###   #   #
+#
+################################################################################
+
+class NLogoError(Exception):
+    """
+    Bespoke error handler class, allowing tracking of cause, recovery options
+    for the user, and an indication of whether this is a bug. Using these
+    exceptions allows clean recovery when in GUI mode.
+    """
+    def __init__(self, message, cause = None, recovery = None, bug = False):
+        Exception.__init__(message)
+        self.message = message
+        self.cause = cause
+        self.recoverable = False
+        self.recoveryMessage = "Cannot recover from this error"
+        if not recovery is None:
+            self.recoverable = True
+            self.recoveryMessage = recovery
+        self.bug = bug
+
+
+################################################################################
 # Widget Class
 #
 #   #   #  ###  ####    ####  #####  #####
@@ -311,6 +340,10 @@ class Parameter(Widget):
         self.default = 'NA'
         self.value = 'NA'
         self.datatype = 'string'
+        self.constrained = False
+        self.rangeConstraint = False
+        self.setConstraint = False
+        self.otherParamConstraint = False
 
     def variable(self):
         return self.varname
@@ -491,6 +524,8 @@ class Switch(Parameter):
         self.isSwitchedOn = on
         self.value = self.isSwitchedOn
         self.datatype = 'boolean'
+        self.constrained = True
+        self.setConstraint = True
 
     @staticmethod
     def read(fp):
@@ -505,6 +540,9 @@ class Switch(Parameter):
         res1 = fp.readline()
         res2 = fp.readline()
         return Switch(left, top, right, bottom, display, varname, on)
+
+    def getConstraintSet(self):
+        return [True, False]
 
 ################################################################################
 # Chooser Class
@@ -523,6 +561,8 @@ class Chooser(Parameter):
         self.selection = selection
         self.value = self.selection
         self.datatype = 'integer'
+        self.constrained = True
+        self.setConstraint = False
 
     @staticmethod
     def read(fp):
@@ -554,6 +594,9 @@ class Chooser(Parameter):
     def getSelectionStr(self):
         return self.choices[self.selection]
 
+    def getConstraintSet(self):
+        return self.choices
+
 
 ################################################################################
 # Slider Class
@@ -576,6 +619,22 @@ class Slider(Parameter):
         self.isHorizontal = (orientation == "HORIZONTAL")
         self.value = self.default
         self.datatype = 'numeric'
+        self.constrained = True         # Strictly, you can set sliders outwith 
+                                        # their range
+        self.rangeConstraint = True
+        self.minOther = False
+        self.maxOther = False
+        try:
+            float(min)
+        except ValueError:
+            self.otherParamConstraint = True
+            self.minOther = True
+        try:
+            float(max)
+        except ValueError:
+            self.otherParamConstraint = True
+            self.maxOther = True
+
 
     @staticmethod
     def read(fp):
@@ -594,6 +653,49 @@ class Slider(Parameter):
         orientation = fp.readline().strip()
         return Slider(left, top, right, bottom, display, varname, min, max,
                       default, step, units, orientation)
+
+    def getMinimumConstraint(self):
+        return self.minimum
+    
+    def getMaximumConstraint(self):
+        return self.maximum
+
+    def getNumericalMinConstraint(self, param_dict):
+        if self.minOther:
+            if self.minimum in param_dict:
+                param = param_dict[self.minimum]
+                if isinstance(param, Slider):
+                    dict_cpy = param_dict.copy()
+                    dict_cpy.pop(self.minimum)      # Stop infinite recursion
+                    return param.getNumericalMinConstraint(dict_cpy)
+                elif isinstance(param, Parameter) and param.datatype == "numeric":
+                    return float(param.value)
+                elif isinstance(param, float):
+                    return param
+                elif isinstance(param, int):
+                    return float(param)
+            return 'NA'
+        else:
+            return float(self.minimum)
+
+    def getNumericalMaxConstraint(self, param_dict):
+        if self.maxOther:
+            if self.maximum in param_dict:
+                param = param_dict[self.maximum]
+                if isinstance(param, Slider):
+                    dict_cpy = param_dict.copy()
+                    dict_cpy.pop(self.maximum)      # Stop infinite recursion
+                    return param.getNumericalMaxConstraint(dict_cpy)
+                elif isinstance(param, Parameter) and param.datatype == "numeric":
+                    return float(param.value)
+                elif isinstance(param, float):
+                    return param
+                elif isinstance(param, int):
+                    return float(param)
+            return 'NA'
+        else:
+            return float(self.maximum)
+
 
 ################################################################################
 # Monitor Class
@@ -852,7 +954,7 @@ class Experiment:
                 maxes[param.variable] = param.getNValues()
 
         done = False
-        i = 0 # i starts at 0 for consistency with monte/montq
+        i = 1 
         n = self.getNRuns()
         if not opts.split_reps:
             n /= self.repetitions
@@ -886,7 +988,7 @@ class Experiment:
             if opts.split_reps:
                 reps = 1
             for j in range(self.repetitions / reps):
-                new_name = "%s-%0*d" % (self.name, (1 + int(math.log10(n))), i)
+                new_name = "%s-%0*d" % (self.name, Batch.n_digits(n), i)
 
                 # Set each directory parameter
                 for param in opts.dir_params:
@@ -1069,16 +1171,16 @@ class Experiment:
         """
         expts = []
         for i in range(0, n):
-            new_name = "%s-%0*d" % (self.name, (1 + int(math.log10(n))), i)
+            new_name = "%s-%0*d" % (self.name, Batch.n_digits(n), i + 1)
             expt = self.withSamples(samples)
             expt.rename(new_name)
             if opts.save_csv:
                 expt.finallySaveParamMetricsExpt()
             for param in opts.dir_params:
-                expt.addEnumeratedValue(param, Batch.outdir(opts, self.name, i, n))
+                expt.addEnumeratedValue(param, Batch.outdir(opts, self.name, i + 1, n))
             for param in opts.file_params:
-                expt.addEnumeratedValue(param, opts.getUniqueFilename(param, self.name, i, n))
-            expt.results = Batch.outdir(opts, self.name, i, n)
+                expt.addEnumeratedValue(param, opts.getUniqueFilename(param, self.name, i + 1, n))
+            expt.results = Batch.outdir(opts, self.name, i + 1, n)
             expts.append(expt)
         return expts
 
@@ -1125,7 +1227,7 @@ class Experiment:
         else:
             n_batch = math.ceil(len(expts) / opts.batch_size)
             for batch in range(0, n_batch):
-                batch_str = str.format("{:0%dd}"%(1 + int(math.log10(float(n_batch)))), batch)
+                batch_str = "%0*d"%(Batch.n_digits(n_batch), batch + 1)
                 batch_file = file_name[0:(len(file_name) - 4)] + "-" + batch_str + ".xml"
 
                 try:
@@ -1563,10 +1665,12 @@ class NetlogoModel:
                     fp.write(u",%s,%s\n"%(str(param[key].minimum), str(param[key].maximum)))
                 elif isinstance(param[key], Chooser):
                     fp.write(u",0,%d\n"%(len(param[key].choices) - 1))
+                    # TO-DO use one-of instead of 0 and write options separated by |
                 else:
                     fp.write(u",%s,%s\n"%(param[key].settingStr(), param[key].settingStr()))
             elif param[key].datatypeStr() == 'boolean':
                 fp.write(u",true,false\n")
+                # TO-DO have this as ,one-of,true|falae
             else:
                 fp.write(u",NA,NA\n")
 
@@ -1606,16 +1710,16 @@ class NetlogoModel:
         self.getExperiments()
         if len(self.behav) == 0:
             print("There are no experiments")
-            return 0
+            return []
         elif name not in self.expts:
             print("There is no experiment named " + name)
-            return 0
+            return []
         else:
             expt = self.expts[name]
             splitted = expt.uniqueSettings(opts)
             Experiment.writeExperiments(file, splitted, opts)
             print("Written " + str(len(splitted)) + " experiments to \"" + file + "\"")
-            return len(splitted)
+            return splitted
 
     def getVersion(self):
         return self.version
@@ -1640,6 +1744,7 @@ class Sample:
     def __init__(self, param, datatype, setting, minimum, maximum):
         self.param = param
         self.datatype = datatype
+        # TO-DO: update this to handle 'minimum' == 'one-of'
         if isinstance(self.param, Chooser):
             if minimum in param.choices:
                 self.minimum = param.choices.index(minimum)
@@ -1784,57 +1889,119 @@ class Sample:
 
 class Batch:
     """
-    The Batch class writes the SLURM and/or SGE script to run the job on a
+    The Batch class manages batch sizes and tasks, working with Script class
+    instances to make sure that names and directories for script files are
+    consistent.
+    """
+    def __init__(self, opts, xml, expts):
+        self.n_expt = len(expts)
+        self.n_expt_digits = Batch.n_digits(n_expt)
+        self.xml = xml
+        self.task_limit = opts.task_limit
+        self.n_batch = 1 if self.n_expt <= opts.batch_max else math.ceil(self.n_expt / opts.batch_size)
+        self.n_batch_digits = Batch.n_digits(self.n_batch)
+        self.batch_size = self.n_expt if self.n_batch == 1 else opts.batch_size
+
+        # Check that the array of experiments has a predictable nomenclature
+        # that includes all the numbers from 1 to n_expt inclusive with no
+        # duplicates
+        self.expt_name = expts[1].name
+        expt_names = {}
+        self.n_runs = 0
+        for expt in expts:
+            if expt.name in expt_names:
+                raise NLogoError("Duplicate experiment name \"{name}\"".format(name = expt.name),
+                    bug = True)
+            expt_names[expt.name] = 1
+            self.expt_name = os.path.commonprefix([expt.name, self.expt_name])
+            self.n_runs += expt.getNRuns()
+
+        if self.expt_name == "":
+            raise NLogoError("No common experiment name nomenclature", bug = True)
+
+        for i in range(n_expt):
+            id = "%0*d"%(n_expt_digits, i + 1)
+            expected_name = "{x}{n}".format(x = self.expt_name, n = id)
+            if not expected_name in expt_names:
+                raise NLogoError(
+                    "Not found expected experiment name \"{name}\"".format(name = expected_name),
+                    bug = True)
+
+        self.script = Script(opts, xml, n_expt, self)
+
+
+    @staticmethod
+    def n_digits(n):
+        return len("%d"%(n))
+
+    def getTaskIDSh(self, task_var):
+        return u'''
+TASK_NO={var}
+if [[ "$#" -gt 0 ]]
+then
+  TASK_ID=$(expr $TASK_NO + $1)
+fi
+if [[ TASK_NO -gt {n} ]]
+then
+  exit
+fi
+'''.format(var = task_var, n = self.n_expt)
+
+    def getBatchIDSh(self):
+        if self.n_batch == 1:
+            return u"# No BATCH_ID this experiment\nXML={x}\nBDIR=.\n".format(x = self.xml)
+        else:
+            return u'''
+BATCH_NO=$(expr $TASK_NO / {size})
+if [[ $(expr $TASK_NO % {size}) -gt 0 ]]
+then
+  BATCH_NO=$(expr $BATCH_NO + 1)
+fi
+printf -v BATCH_ID "%0{n}d" $BATCH_NO
+XML="{x}-$BATCH_ID.xml"
+BDIR="{x}-$BATCH_ID"
+'''.format(size = self.batch_size, n = self.n_batch_digits, x = self.xml[:-4])
+
+    def getExptIDsh(self):
+        return u'''
+printf -v EXPT_ID "{name}%0{n}d" $TASK_NO
+'''.format(name = self.expt_name, n = self.n_expt_digits)
+
+    def saveSGE(self, file_name):
+        self.script.saveSGE(file_name)
+
+    def saveSLURM(self, file_name):
+        self.script.saveSLURM(file_name)
+
+################################################################################
+# Script Class
+#
+#    ####   ####  ####   ###  ####   #####
+#   #      #      #   #   #   #   #    #
+#    ###   #      ####    #   ####     #
+#       #  #      #   #   #   #        #
+#   ####    ####  #   #  ###  #        #
+#
+################################################################################
+
+class Script:
+    """
+    The script class writes the SLURM and/or SGE script to run the job on a
     cluster. (SGE will increasingly not be maintained.) This is complicated
     by various considerations to do with threading, cores, garbage collection,
     and workarounds for job size limits.
     """
-    def __init__(self, opts, xml, expt, nruns):
+    def __init__(self, opts, xml, n_expt, batch):
         self.opts = opts
         self.dir = opts.dir
+        self.n_expt = n_expt
         self.name = opts.jobname if opts.jobname != "" else xml[:-4]
-        self.nbatch = math.ceil(nruns / opts.batch_size)
-        if self.nbatch <= 1:
-            self.xml = xml
-            self.batchzeros = 0
-        else:
-            self.xml = self.name + "-$BATCH_NO.xml"
-            self.batchzeros = self.batchZeros(opts, nruns)
-            if self.dir == ".":
-                self.dir = "$BATCH_NO"
-            else:
-                self.dir = "{dir}/{xml}-$BATCH_NO".format(dir = opts.dir, xml = self.name)
-        self.expt = expt
-        self.nruns = nruns
-        self.nrunzeros = 1 if nruns <= 1 else 1 + int(math.log10(nruns - 1))
         self.gigaram = opts.gigaram if opts.limit_ram else 0
-        self.concur = opts.concur if opts.concur <= nruns else nruns
+        self.concur = opts.concur if opts.concur <= n_expt else n_expt
         self.time = int(opts.days * 86400)
-        self.need_sleeper = (opts.task_limit > 0 and opts.task_limit < nruns)
-        self.task_size = opts.task_limit if self.need_sleeper else nruns
-
-    @staticmethod
-    def batchZeros(opts, nruns):
-        """
-        Larger jobs need to be organized into batches because NetLogo gets
-        unhappy with XML files larger than 10,000 runs. These jobs need to
-        be split up into separate XML files according to batch size. This
-        function returns the number of digits needed to store the highest
-        batch number (which will start at 0).
-        """
-        return 1 + int(math.log10(math.ceil(nruns / opts.batch_size) - 1))
-
-    @staticmethod
-    def outdir(opts, name, run, nruns):
-        """
-        Get the output directory for a given run
-        """
-        if opts.max_batch > nruns:
-            return opts.dir
-        else:
-            batchzeros = Batch.batchZeros(opts, nruns)
-            batchnum = int(run / opts.batch_size)
-            return "%s/%s-%*d" % (opts.dir, name, batchzeros, batchnum)
+        self.need_sleeper = (opts.task_limit > 0 and opts.task_limit < n_expt)
+        self.task_size = opts.task_limit if self.need_sleeper else n_expt
+        self.batch = batch
 
     def saveSGE(self, file_name):
         """
@@ -1847,15 +2014,14 @@ class Batch:
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
-            sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
-            sys.exit(1)
+            raise NLogoError("Error creating file \"{name}\"".format(file_name), cause = e)
         fp.write(u'''#!/bin/sh
 #$ -cwd
-#$ -t 1-{nrun}
+#$ -t 1-{ntask}
 #$ -pe smp {svr_cores}
 #$ -N {name}
 #$ -l h_cpu={time}
-'''.format(nrun = self.task_size, svr_cores = self.opts.cores(), name = self.name,
+'''.format(ntask = self.task_size, svr_cores = self.opts.cores(), name = self.name,
             time = self.time))
         if self.concur != 0:
             fp.write(u"#$ -tc {concur}\n".format(concur = self.concur))
@@ -1871,11 +2037,9 @@ class Batch:
 
         if self.gigaram != 0:
             fp.write(u"#$ -l h_vmem={mem}m\n".format(mem = int(self.gigaram * 1024 / self.opts.cores())))
-        if self.need_sleeper:
-            fp.write(u"TASK_ID=$(expr $SGE_TASK_ID + $1)\n")
-        else:
-            fp.write(u"TASK_ID=$SGE_TASK_ID\n")
-
+        
+        fp.write(self.batch.getTaskIDSh("$SGE_TASK_ID"))
+ 
         self.saveCommon(fp, self.opts.getNanny())
         fp.close()
         os.chmod(file_name, 0o755)
@@ -1891,8 +2055,7 @@ class Batch:
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
-            sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
-            sys.exit(1)
+            raise NLogoError("Error creating file \"{name}\"".format(file_name), cause = e)
         fp.write(u"#!/bin/sh\n")
         if self.opts.wait == 0:
             fp.write(u"#SBATCH --begin=now\n")
@@ -1907,20 +2070,17 @@ class Batch:
         if self.opts.err != "":
             fp.write(u"#SBATCH --error={err}\n".format(err = self.opts.err))
         if self.concur != 0:
-            fp.write(u"#SBATCH --array=1-{nrun}%{concur}\n".format(
-                nrun = self.task_size, concur = self.concur))
+            fp.write(u"#SBATCH --array=1-{ntask}%{concur}\n".format(
+                ntask = self.task_size, concur = self.concur))
         else:
-            fp.write(u"#SBATCH --array=1-{nrun}\n".format(nrun = self.task_size))
+            fp.write(u"#SBATCH --array=1-{ntask}\n".format(ntask = self.task_size))
         if self.opts.project != "":
             fp.write(u"#SBATCH --wckey={proj}\n".format(proj = self.opts.project))
         if self.gigaram != 0:
             fp.write(u"#SBATCH --mem-per-cpu={mem}\n".format(
                 mem = int(self.gigaram * 1024 / self.opts.cores()))
             )
-        if self.need_sleeper:
-            fp.write(u"TASK_ID=$(expr $SLURM_ARRAY_TASK_ID + $1)\n")
-        else:
-            fp.write(u"TASK_ID=$SLURM_ARRAY_TASK_ID\n")
+        fp.write(self.batch.getTaskIDSh("$SLURM_ARRAY_TASK_ID"))
 
         self.saveCommon(fp, "srun " + self.opts.getNanny())
         fp.close()
@@ -1930,45 +2090,32 @@ class Batch:
         """
         Save parts of the job submission script common to SLURM and SGE
         """
-        indent = "  " if self.need_sleeper else ""
-        if self.need_sleeper:
-            fp.write(u"if [[ \"$TASK_ID\" -le {nrun} ]]\n".format(nrun = self.nruns))
-            fp.write(u"then\n")
-
-        fp.write(u"{i}printf -v JOB_ID \"%0{size}d\" $(expr $TASK_ID - 1)\n".format(
-            i = indent, size = self.nrunzeros))
-        if self.nbatch > 1:
-            fp.write(u"{i}printf -v BATCH_NO \"%0{batchsize}d\" $(expr $TASK_ID / {maxbatch})\n".format(
-                i = indent, batchsize = self.batchzeros, maxbatch = self.nbatch))
+        fp.write(self.batch.getBatchIDSh())
+        fp.write(self.batch.getExptIDsh())
 
         if self.opts.delay != 0:
-            fp.write(u"{i}sleep $((RANDOM % {delay}))\n".format(i = indent,
-                delay = self.opts.delay))
-        fp.write(u"{i}mdir=\"`pwd`\"\n".format(i = indent))
-        fp.write(u"{i}xdir=\"`pwd`\"\n".format(i = indent))
+            fp.write(u"sleep $((RANDOM % {delay}))\n".format(delay = self.opts.delay))
         if self.dir != '.':
-            fp.write(u"{i}rdir=\"`pwd`/{dir}\"\n".format(i = indent, dir = self.dir))
-            fp.write(u"{i}test -d \"$rdir\" || mkdir -p \"$rdir\"\n".format(i = indent))
+            fp.write(u"RDIR=\"`pwd`/{dir}/$BDIR\"\n".format(dir = self.dir))
+            fp.write(u"test -d \"$RDIR\" || mkdir -p \"$RDIR\"\n")
         else:
-            fp.write(u"{i}rdir=\"`pwd`\"\n".format(i = indent))
+            fp.write(u"RDIR=\"`pwd`/$BDIR\"\n".format(i = indent))
 
         fp.write(u'''
-{i}xml="$xdir/{xml}"
-{i}export JAVA_HOME="{java_home}"
-{i}cd "{nlogo_home}"
-{i}xpt="{expt}-$JOB_ID"
-{i}out="$rdir/{expt}-$JOB_ID.out"
-{i}csv="$rdir/{expt}-$JOB_ID-table.csv"
-{i}{cmd} "{nlogo_invoke}" --model "$mdir/{model}" --setup-file "$xml" --experiment "$xpt" --threads {nlogo_threads} --table "$csv" > "$out" 2>&1
-'''.format(i = indent, size = self.nrunzeros, xml = self.xml, java_home = self.opts.java,
-            nlogo_home = self.opts.nlogoHome(), expt = self.expt, cmd = cmd,
+export JAVA_HOME="{java_home}"
+MDIR="`pwd`"
+XDIR="`pwd`"
+cd "{nlogo_home}"
+OUT="$RDIR/$EXPT_ID.out"
+CSV="$RDIR/$EXPT_ID-table.csv"
+{cmd} "{nlogo_invoke}" --model "$MDIR/{model}" --setup-file "$XML" --experiment "$EXPT_ID" --threads {nlogo_threads} --table "$CSV" > "$OUT" 2>&1
+'''.format(java_home = self.opts.java,
+            nlogo_home = self.opts.nlogoHome(), cmd = cmd,
             nlogo_invoke = self.opts.invokePath(), model = self.opts.model,
             nlogo_threads = self.opts.threads))
         if self.opts.zip:
-            fp.write(u"{i}test -e \"$out\" && gzip \"$out\"\n".format(i = indent))
-            fp.write(u"{i}test -e \"$csv\" && gzip \"$csv\"\n".format(i = indent))
-        if self.need_sleeper:
-            fp.write(u"fi\n")
+            fp.write(u"test -e \"$OUT\" && gzip \"$OUT\"\n")
+            fp.write(u"test -e \"$CSV\" && gzip \"$CSV\"\n")
 
     def saveSleeperScript(self, file_name, batch_script):
         """
@@ -1980,12 +2127,11 @@ class Batch:
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
-            sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
-            sys.exit(1)
+            raise NLogoError("Error creating file \"{name}\"}".format(name = file_name), cause = e)
         fp.write(u"#!/bin/sh\n")
         fp.write(u"me=`whoami`\n")
 
-        nsleep = math.ceil(self.nruns / self.opts.task_limit)
+        nsleep = math.ceil(self.n_expt / self.opts.task_limit)
         fp.write(u"for n in `seq 0 {s}`\n".format(s = nsleep - 1))
         fp.write(u"do\n")
 
@@ -2478,8 +2624,8 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
     def args(self):
         return self.cmd_args
 
-    def makeBatch(self, xml, expt, nruns):
-        self.batch = Batch(self, xml, expt, nruns)
+    def makeBatch(self, xml, expts):
+        self.batch = Batch(self, xml, expts)
 
     @staticmethod
     def cmpver(v1, v2):
@@ -2551,12 +2697,12 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
             sys.stderr.write("Cluster format \"{fmt}\" not recognized\n".format(
                 fmt = self.cluster))
 
-    def runCmd(self, script, nrun):
+    def runCmd(self, script, n_expts):
         if self.cluster != "SLURM" and self.cluster != "SGE":
             return script
 
         prj = "<project>" if self.project == "" else ""
-        if nrun <= self.task_limit:
+        if n_expts <= self.task_limit:
             cmd = "qsub" if self.cluster == "SGE" else "sbatch"
             qprj = " -P " if self.cluster == "SGE" else " --wckey="
             prj = qprj + prj if self.project == "" else ""
@@ -2656,9 +2802,9 @@ if __name__ == "__main__":
     elif opts.cmd == 'expts':
         model.printExperiments()
     elif opts.cmd == 'split' or opts.cmd == 'splitq':
-        nexpts = model.splitExperiment(args[0], args[1], opts)
-        if opts.cmd == 'splitq' and nexpts > 0:
-            opts.makeBatch(args[1], args[0], nexpts)
+        expts = model.splitExperiment(args[0], args[1], opts)
+        if opts.cmd == 'splitq' and len(expts) > 0:
+            opts.makeBatch(args[1], args[0], expts)
             opts.saveScript(args[2])
             print("Job submission script written to \"{sh}\"".format(sh = args[2]))
             print("Submit the script with \"{sub}\"".format(
@@ -2670,10 +2816,10 @@ if __name__ == "__main__":
         Experiment.writeExperiments(args[3], expts, opts)
         print("Experiments written to \"{xml}\"".format(xml = args[3]))
         if opts.cmd == 'montq':
-            opts.makeBatch(args[3], opts.name, int(args[2]))
+            opts.makeBatch(args[3], opts.name, expts)
             opts.saveScript(args[4])
             print("Job submission script written to \"{sh}\"".format(sh = args[4]))
             print("Submit the script with \"{sub}\"".format(
-                sub = opts.runCmd(args[4], int(args[2]))))
+                sub = opts.runCmd(args[4], len(expts))))
 
     sys.exit(0)
