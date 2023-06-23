@@ -116,6 +116,15 @@ def lineBreak(str, indent = "", tabstop = 8):
                 str = lstr[(space + 1):] + str
     return ret
 
+def parseBoolean(s):
+    if s == "True":
+        return True
+    elif s == "False":
+        return False
+    else:
+        sys.stderr.print("BUG! String \"{s}\" is not \"True\" or \"False\"".format(s = s))
+        sys.exit(1)
+
 ################################################################################
 # NLogoError Class
 #
@@ -427,7 +436,7 @@ class Plot(Output):
         if fp.readline().strip() == "PENS":
             penstr = fp.readline().strip()
             while penstr != '':
-                plot.addPen(Pen.parse(penstr))
+                plot.addPen(Pen.parse(penstr, display))
                 penstr = fp.readline().strip()
 
         return plot
@@ -450,7 +459,7 @@ class Pen:
     The Pen class contains data for each pen of a Plot
     """
     def __init__(self, display, interval, mode, colour, in_legend, setup_code,
-                 update_code):
+                 update_code, plot_name):
         self.display = display
         self.interval = interval
         self.mode = mode
@@ -458,9 +467,10 @@ class Pen:
         self.inLegend = in_legend
         self.setupCode = setup_code
         self.updateCode = update_code
+        self.plotName = plot_name
 
     @staticmethod
-    def parse(penstr):
+    def parse(penstr, plot_name):
         words = penstr.split()
         display = words[0]
         i = 1
@@ -477,7 +487,7 @@ class Pen:
             setup_code = setup_code + " " + words[i]
             i = i + 1
         update_code = " ".join(words[i:])
-        return Pen(display, interval, mode, colour, in_legend, setup_code, update_code)
+        return Pen(display, interval, mode, colour, in_legend, setup_code, update_code, plot_name)
 
 ################################################################################
 # TextBox Class
@@ -902,7 +912,7 @@ class Experiment:
     def __init__(self, name, setup, go, final, time_limit, exit_condition,
                  metrics, stepped_values = [], enumerated_values = [],
                  repetitions = 1, sequential_run_order = True,
-                 run_metrics_every_step = True, results = "."):
+                 run_metrics_every_step = True, results = ".", metric_labels = []):
         self.name = name
         self.setup = setup
         self.go = go
@@ -910,6 +920,10 @@ class Experiment:
         self.timeLimit = time_limit
         self.exitCondition = exit_condition
         self.metrics = metrics
+        if len(metric_labels) != len(metrics):
+            self.metricLabels = [x for x in metrics]
+        else:
+            self.metricLabels = metric_labels
         self.steppedValueSet = stepped_values
         self.enumeratedValueSet = enumerated_values
         self.repetitions = int(repetitions)
@@ -1149,7 +1163,7 @@ class Experiment:
         return Experiment(self.name, self.setup, self.go, self.final, self.timeLimit,
                           self.exitCondition, self.metrics, [], new_enum_set,
                           self.repetitions, self.sequentialRunOrder,
-                          self.runMetricsEveryStep)
+                          self.runMetricsEveryStep, metric_labels = self.metricLabels)
 
     def withSamples(self, samples):
         """
@@ -1201,10 +1215,30 @@ class Experiment:
         fp.write(u"</experiments>\n")
 
     @staticmethod
-    def writeExperiments(file_name, expts, opts):
+    def writeExperiments(expts, opts):
+        """
+        Save an array of experiments to the XML file named on the command line
+        """
+        try:
+            if not os.path.isdir(opts.xml_dir):
+                os.mkdir(opts.xml_dir)
+        except IOError as e:
+            sys.stderr.write("Error checking/creating experiment directory \"{d}\": {s}\n".format(
+                d = opts.xml_dir, s = e.strerror))
+        written = Experiment.writeExperimentsToFile(opts.xml_dir + "/" + opts.arg_xml, expts, opts)
+        if len(written) == 0:
+            sys.exit(1)
+        else:
+            print("{n} experiments written to the following files:".format(n = len(expts)))
+            for f in written:
+                print("\t{file_name}".format(file_name = f))
+
+    @staticmethod
+    def writeExperimentsToFile(file_name, expts, opts):
         """
         Save an array of experiments as an XML file
         """
+        written = []
         if opts.progress:
             for expt in expts:
                 expt.addProgress()
@@ -1214,7 +1248,7 @@ class Experiment:
                 fp = io.open(file_name, "w")
             except IOError as e:
                 sys.stderr.write("Error creating file %s: %s\n"%(file_name, e.strerror))
-                return False
+                return written
 
             Experiment.writeExperimentHeader(fp)
 
@@ -1223,6 +1257,7 @@ class Experiment:
 
             Experiment.writeExperimentFooter(fp)
             fp.close()
+            written.append(file_name)
 
         else:
             n_batch = math.ceil(len(expts) / opts.batch_size)
@@ -1234,7 +1269,7 @@ class Experiment:
                     fp = io.open(batch_file, "w")
                 except IOError as e:
                     sys.stderr.write("Error creating file %s: %s\n"%(batch_file, e.strerror))
-                    return False
+                    return []
 
                 Experiment.writeExperimentHeader(fp)
 
@@ -1248,8 +1283,9 @@ class Experiment:
 
                 Experiment.writeExperimentFooter(fp)
                 fp.close()
+                written.append(batch_file)
 
-        return True
+        return written
 
     def writeExperimentDetails(self, fp):
         """
@@ -1316,10 +1352,16 @@ class Experiment:
         self.repetitions = int(reps)
 
     def setSequentialRunOrder(self, seq):
-        self.sequentialRunOrder = bool(seq)
+        if isinstance(seq, str) and seq == "False":
+            self.sequentialRunOrder = False 
+        else:
+            self.sequentialRunOrder = bool(seq)
 
     def setRunMetricsEveryStep(self, run):
-        self.runMetricsEveryStep = bool(run)
+        if osomstamce(run, str) and run == "False":
+            self.runMetricsEveryStep = False
+        else:
+            self.runMetricsEveryStep = bool(run)
 
     def setSetup(self, setup):
         """
@@ -1407,8 +1449,10 @@ class Experiment:
             for v in self.enumeratedValueSet:
                 paramStr = paramStr + v.variable + ","
                 wordStr = wordStr + v.variable + " \",\" "
-            for m in self.metrics:
-                paramStr = paramStr + m.replace(",", ".").replace('"', ".") + ","
+            for i in range(len(self.metrics)):
+                m = self.metrics[i]
+                l = self.metricLabels[i]
+                paramStr = paramStr + l.replace(",", ".").replace('"', ".") + ","
                 wordStr = wordStr + "(" + m + ") \",\" "
             if self.results != ".":
                 file_name = self.results + "/" + file_name
@@ -1458,6 +1502,7 @@ file-close
         """
         if isinstance(metric, Monitor):
             self.metrics.append(metric.source)
+            self.metricLabels.append(metric.display)
         elif isinstance(metric, Plot):
             for p in metric.getPens():
                 self.addMetric(p)
@@ -1469,13 +1514,22 @@ file-close
                 code = code[5:]
             if not code.startswith('histogram '):
                 self.metrics.append(code)
+                legend = metric.display
+                if legend[0] == '\"':
+                    legend = legend[1:]
+                if legend[-1] == '\"':
+                    legend = legend[:-1]
+                legend = metric.plotName + "." + legend if legend != "default" else metric.plotName
+                self.metricLabels.append(legend)
         elif isinstance(metric, Experiment):
-            for m in metric:
-                self.addMetric(m)
+            for i in range(len(metric.metrics)):
+                self.addMetricLabelled(metric.metrics[i], metric.metricLabels[i])
         elif isinstance(metric, Parameter):
             self.metrics.append(metric.variable())
+            self.metricLabels.append(metric.variable())
         elif not isinstance(metric, Output):
             self.metrics.append(str(metric))
+            self.metricLabels.append(str(metric))
 
     def clearSteppedValueSet(self):
         """
@@ -1556,9 +1610,9 @@ class NetlogoModel:
         options exist.
         """
         try:
-            fp = io.open(opts.model)
+            fp = io.open(opts.model_file)
         except IOError as e:
-            sys.stderr.write("Error opening file %s: %s\n"%(opts.model, e.strerror))
+            sys.stderr.write("Error opening file %s: %s\n"%(opts.model_file, e.strerror))
             return False
 
         code = NetlogoModel.readSection(fp)
@@ -1576,7 +1630,7 @@ class NetlogoModel:
 
         sd = NetlogoModel.readSection(fp)
 
-        behav = Experiment.fromXMLString(NetlogoModel.readSection(fp), opts.model)
+        behav = Experiment.fromXMLString(NetlogoModel.readSection(fp), opts.model_file)
 
         hubnet = NetlogoModel.readSection(fp)
 
@@ -1702,7 +1756,7 @@ class NetlogoModel:
                     print("\t\tmetric {mid}: \"{mstr}\"".format(mid = m, mstr = metric))
                     m += 1
 
-    def splitExperiment(self, name, file, opts):
+    def splitExperiment(self, name, file_name, opts):
         """
         Split an experiment, saving the runs to the XML file, and returning the
         number of experiments created.
@@ -1717,8 +1771,7 @@ class NetlogoModel:
         else:
             expt = self.expts[name]
             splitted = expt.uniqueSettings(opts)
-            Experiment.writeExperiments(file, splitted, opts)
-            print("Written " + str(len(splitted)) + " experiments to \"" + file + "\"")
+            Experiment.writeExperiments(file_name, splitted, opts)
             return splitted
 
     def getVersion(self):
@@ -1746,12 +1799,7 @@ class Sample:
         self.datatype = datatype
         # TO-DO: update this to handle 'minimum' == 'one-of'
         if isinstance(self.param, Chooser):
-            print("minimum is \"" + minimum + "\", with type " + str(type(minimum)) + "\n")
-            for x in param.choices:
-                print("choice \"" + x + "\" has type " + str(type(x)))
-                if x == '"' + minimum + '"':
-                    print("it is the choice we made")
-            
+
             if minimum in param.choices:
                 self.minimum = param.choices.index(minimum)
             elif ('"' + minimum + '"') in param.choices:
@@ -1899,12 +1947,12 @@ class Batch:
     instances to make sure that names and directories for script files are
     consistent.
     """
-    def __init__(self, opts, xml, expts):
+    def __init__(self, opts, expts):
         self.n_expt = len(expts)
-        self.n_expt_digits = Batch.n_digits(n_expt)
-        self.xml = xml
+        self.n_expt_digits = Batch.n_digits(self.n_expt)
+        self.xml = opts.arg_xml
         self.task_limit = opts.task_limit
-        self.n_batch = 1 if self.n_expt <= opts.batch_max else math.ceil(self.n_expt / opts.batch_size)
+        self.n_batch = 1 if self.n_expt <= opts.max_batch else math.ceil(self.n_expt / opts.batch_size)
         self.n_batch_digits = Batch.n_digits(self.n_batch)
         self.batch_size = self.n_expt if self.n_batch == 1 else opts.batch_size
 
@@ -1925,20 +1973,40 @@ class Batch:
         if self.expt_name == "":
             raise NLogoError("No common experiment name nomenclature", bug = True)
 
-        for i in range(n_expt):
-            id = "%0*d"%(n_expt_digits, i + 1)
+        for i in range(self.n_expt):
+            id = "%0*d"%(self.n_expt_digits, i + 1)
             expected_name = "{x}{n}".format(x = self.expt_name, n = id)
             if not expected_name in expt_names:
                 raise NLogoError(
                     "Not found expected experiment name \"{name}\"".format(name = expected_name),
                     bug = True)
 
-        self.script = Script(opts, xml, n_expt, self)
+        self.script = Script(opts, self.n_expt, self)
 
 
     @staticmethod
     def n_digits(n):
         return len("%d"%(n))
+
+    @staticmethod
+    def outdir(opts, expt_name, expt_i, expt_n):
+        n_batch = 1 if expt_n <= opts.max_batch else math.ceil(expt_n / opts.batch_size)
+        n_batch_digits = Batch.n_digits(n_batch)
+        n_expt_digits = Batch.n_digits(expt_n)
+        batch_size = expt_n if n_batch == 1 else opts.batch_size
+        batch_n = math.ceil(expt_i / batch_size)
+        x = opts.arg_xml[:-4]
+
+        if n_batch == 1:
+            if opts.sep_expt_dirs:
+                return opts.dir + "/%s-%0*d"%(expt_name, n_expt_digits, expt_i)
+            else:
+                return opts.dir
+        else:
+            if opts.sep_expt_dirs:
+                return opts.dir + "/%s-%0*d/%s-%0*d"%(x, n_batch_digits, batch_n, expt_name, n_expt_digits, expt_i) 
+            else:
+                return opts.dir + "/%s-%0*d"%(x, n_batch_digits, batch_n)
 
     def getTaskIDSh(self, task_var):
         return u'''
@@ -1967,6 +2035,14 @@ printf -v BATCH_ID "%0{n}d" $BATCH_NO
 XML="{x}-$BATCH_ID.xml"
 BDIR="{x}-$BATCH_ID"
 '''.format(size = self.batch_size, n = self.n_batch_digits, x = self.xml[:-4])
+
+    def dupSetupSh(self, opts):
+        sh = "test -d \"$RDIR/$EXPT_ID\" || mkdir -p \"$RDIR/$EXPT_ID\"\n"
+        for ln in opts.dup_links:
+            s = ln
+            d = "$RDIR/$EXPT_ID/" + ln[(1 + ln.rfind("/")):]
+            sh += "test -e \"{dest}\" || ln \"{src}\" \"{dest}\"\n".format(src = s, dest = d)
+        return sh
 
     def getExptIDsh(self):
         return u'''
@@ -1997,11 +2073,11 @@ class Script:
     by various considerations to do with threading, cores, garbage collection,
     and workarounds for job size limits.
     """
-    def __init__(self, opts, xml, n_expt, batch):
+    def __init__(self, opts, n_expt, batch):
         self.opts = opts
         self.dir = opts.dir
         self.n_expt = n_expt
-        self.name = opts.jobname if opts.jobname != "" else xml[:-4]
+        self.name = opts.jobname if opts.jobname != "" else opts.arg_xml[:-4]
         self.gigaram = opts.gigaram if opts.limit_ram else 0
         self.concur = opts.concur if opts.concur <= n_expt else n_expt
         self.time = int(opts.days * 86400)
@@ -2103,18 +2179,34 @@ class Script:
             fp.write(u"sleep $((RANDOM % {delay}))\n".format(delay = self.opts.delay))
         if self.dir != '.':
             fp.write(u"RDIR=\"`pwd`/{dir}/$BDIR\"\n".format(dir = self.dir))
-            fp.write(u"test -d \"$RDIR\" || mkdir -p \"$RDIR\"\n")
         else:
-            fp.write(u"RDIR=\"`pwd`/$BDIR\"\n".format(i = indent))
+            fp.write(u"RDIR=\"`pwd`/$BDIR\"\n")
+
+        if self.opts.sep_expt_dirs:
+            if self.opts.dup_setup:
+                fp.write(self.batch.dupSetupSh(self.opts))
+            fp.write(u"RDIR=\"$RDIR/$EXPT_ID\"\n")
+        fp.write(u"test -d \"$RDIR\" || mkdir -p \"$RDIR\"\n")
+
+        if self.opts.dup_setup:
+            fp.write(u"MDIR=\"$RDIR\"\n")
+        else:
+            if self.opts.model_dir == ".":
+                fp.write(u"MDIR=\"`pwd`\"\n")
+            else:
+                fp.write(u"MDIR=\"`pwd`/{dir}\"\n".format(dir = self.opts.model_dir))
+
+        if self.opts.xml_dir == ".":
+            fp.write(u"XDIR=\"`pwd`\"\n")
+        else:
+            fp.write(u"XDIR=\"`pwd`/{dir}\"\n".format(dir = self.opts.xml_dir))
 
         fp.write(u'''
 export JAVA_HOME="{java_home}"
-MDIR="`pwd`"
-XDIR="`pwd`"
 cd "{nlogo_home}"
 OUT="$RDIR/$EXPT_ID.out"
 CSV="$RDIR/$EXPT_ID-table.csv"
-{cmd} "{nlogo_invoke}" --model "$MDIR/{model}" --setup-file "$XML" --experiment "$EXPT_ID" --threads {nlogo_threads} --table "$CSV" > "$OUT" 2>&1
+{cmd} "{nlogo_invoke}" --model "$MDIR/{model}" --setup-file "$XDIR/$XML" --experiment "$EXPT_ID" --threads {nlogo_threads} --table "$CSV" > "$OUT" 2>&1
 '''.format(java_home = self.opts.java,
             nlogo_home = self.opts.nlogoHome(), cmd = cmd,
             nlogo_invoke = self.opts.invokePath(), model = self.opts.model,
@@ -2161,6 +2253,19 @@ CSV="$RDIR/$EXPT_ID-table.csv"
         fp.close()
         os.chmod(file_name, 0o755)
 
+    @staticmethod
+    def saveProgressScript(file_name, opts):
+        try:
+            fp = io.open(file_name, "w")
+        except IOError as e:
+            raise NLogoError("Error creating progress script \"{name}\"".format(name = file_name), cause = e)
+        
+        fp.write('''
+#!/usr/bin/perl
+''')
+        fp.close()
+        os.chmod(file_name, 0o755)
+
 ################################################################################
 # Option Class
 #
@@ -2198,6 +2303,35 @@ class Option:
             sys.stderr.write("BUG! Option {o} not in dict".format(o = opt))
             sys.exit(1)
 
+    @staticmethod
+    def printSummary(cmd):
+        for k in sorted(Option.options.keys()):
+            if k[:2] == "--":
+                opt = Option.options[k]
+                val = opt.valueStr()
+                if len(opt.cmd) == 0 or cmd in opt.cmd:
+                    if(opt.once):
+                        if(opt.n_args == 0):
+                            if val == "":
+                                print("{o} has not been set".format(o = opt.long_name))
+                            else:
+                                print("{o} is {v}".format(o = opt.long_name, v = val))
+                        elif(opt.n_args == 1):
+                            if val == "":
+                                print("{o} has no value for {a}".format(o = opt.long_name, a = opt.args[0]))
+                            else:
+                                print("{o} has {a} = {v}".format(o = opt.long_name, a = opt.args[0], v = val))
+                        else:
+                            for i in range(len(opt.args)):
+                                print("{o} has {a} = {v}".format(o = opt.long_name, a = opt.args[i], v = val[i]))
+                    elif len(val) > 0:
+                        print("{o} has the following values:".format(o = opt.long_name))
+                        for i in range(len(val)):
+                            print("\t{n}. {v}".format(n = i + 1, v = val[i]))
+                    else:
+                        print("{o} has no values".format(o = opt.long_name))
+
+
     def assign(self, value):
         if self.once and len(self.values) > 1:
             sys.stderr.write("You cannot use option {o} more than once\n".format(o = self.long_name))
@@ -2217,7 +2351,7 @@ class Option:
     def valueStr(self):
         if len(self.values) == 0:
             return str(self.default)
-        elif self.once and len(self.args) <= 1:
+        elif self.once and self.n_args <= 1:
             return str(self.values[0])
         else:
             return self.values
@@ -2275,7 +2409,7 @@ class Option:
         elif str == "--":
             return None
         else:
-            sys.stderr.write("Option \"{opt}\" not recognized\n".format(opt = args[i]))
+            sys.stderr.write("Option \"{opt}\" not recognized\n".format(opt = str))
             sys.exit(1)
 
     @staticmethod
@@ -2303,6 +2437,9 @@ class Option:
 
     @staticmethod
     def initOptions():
+        # short_name taken records: # means option taken
+        # abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
+        #  # ######### ###  ## ### ### # ### # # ###  ##     #   
         Option("add-outdir", "add the output directory to the beginning of " +
             "any parameter given with --file-param", False, cmd = Option.exptCmds(),
              prereq = ["file-param"])
@@ -2321,9 +2458,24 @@ class Option:
             "be set to the results directory given with the --dir argument. If there " +
             "are several such parameters, then this argument can be reused", "",
             once = False, args = ["param"], cmd = Option.exptCmds())
+        Option("dup-setup", "duplicate the setup (entails --sep-expt-dirs) using hard " +
+            "links", False, cmd = Option.exptCmds(), short_name = "D", prereq = ["dir"])
+        Option("dup-setup-omit", "omit files and/or directories from duplicate setup links " +
+            "(by default everything in the same directory as the model will be included " +
+            "unless this script expects it to be created by running the model -- use this " + 
+            "option to specifically exclude things) ", "", once = False,
+            args = ["file or dir"], mutex = ["dup-setup-add"], prereq = ["dup-setup"],
+            cmd = Option.exptCmds(), short_name = "O")
+        Option("dup-setup-add", "add files and/or directories from duplicate setup links " +
+            "(using this option, only the model file will be linked, and you can add other " +
+            "files or directories that need linking)", "", once = False,
+            args = ["file or dir"], mutex = ["dup-setup-omit"], prereq = ["dup-setup"],
+            cmd = Option.exptCmds(), short_name = "A")
         Option("error", "file to save job submission script error stream to " +
             "(output and error from the NetLogo command will be saved elsewhere)",
             "/dev/null", args = ["file"], cmd = Option.scriptCmds(), short_name = "e")
+        Option("expt-dir", "directory to save experiment XML files to", ".",
+            args = ["dir"], cmd = Option.exptCmds(), short_name = "E")
         Option("file-param", "specify the name of a parameter in your model that " +
             "should be set to a unique name in the experiment configuration", "",
             once = False, args = ["param"], cmd = Option.exptCmds())
@@ -2387,6 +2539,8 @@ class Option:
         Option("rng-switch", "specify the name of a parameter in your model that " +
             "must be set to 'true' to get a new random seed for each run", "",
             args = ["param"], cmd = Option.exptCmds(), mutex = ["rng-no-switch"])
+        Option("sep-expt-dirs", "use separate directories for each (split) experiment",
+            False, cmd = Option.exptCmds(), short_name = "S")
         Option("setup", "use the given code to set up rather than what is found in " +
             "the setup button (Monte Carlo experiments only)", "", args = ["code"],
             cmd = ["monte", "montq"])
@@ -2438,19 +2592,21 @@ class Options:
 
         # Assign options from parsed command-line options/defaults
 
-        self.add_outdir = bool(Option.get("add-outdir").valueStr())
+        self.add_outdir = parseBoolean(Option.get("add-outdir").valueStr())
         self.max_batch = int(Option.get("batch-max").valueStr())
         self.batch_size = int(Option.get("batch-size").valueStr())
         self.dir = Option.get("dir").valueStr()
         self.dir_params = Option.get("dir-param").valueStr()
+        self.dup_setup = parseBoolean(Option.get("dup-setup").valueStr())
         self.err = Option.get("error").valueStr()
+        self.xml_dir = Option.get("expt-dir").valueStr()
         self.file_params = Option.get("file-param").valueStr()
         self.nlogo_home = Option.get("find-netlogo").valueStr()
         self.gigaram = int(Option.get("gibibytes").valueStr())
         self.go = Option.get("go").valueStr()
         self.user_go = Option.assigned("go")
-        self.limit_ram = not bool(Option.get("no-limit-ram").valueStr())
-        if bool(Option.get("headless").valueStr()):
+        self.limit_ram = not parseBoolean(Option.get("no-limit-ram").valueStr())
+        if parseBoolean(Option.get("headless").valueStr()):
             self.nlogo_invoke = "netlogo-headless.sh"
         else:
             self.nlogo_invoke = Option.get("invoke-netlogo").valueStr()
@@ -2459,11 +2615,11 @@ class Options:
         self.days = float(Option.get("kill-days").valueStr())
         self.concur = int(Option.get("limit-concurrent").valueStr())
         if Option.assigned("nanny") or not Option.assigned("no-nanny"):
-            self.nanny = bool(Option.get("nanny").valueStr())
+            self.nanny = parseBoolean(Option.get("nanny").valueStr())
         else:
-            self.nanny = not bool(Option.get("no-nanny").valueStr())
-        self.save_csv = not bool(Option.get("no-final-save").valueStr())
-        self.progress = not bool(Option.get("no-progress").valueStr())
+            self.nanny = not parseBoolean(Option.get("no-nanny").valueStr())
+        self.save_csv = not parseBoolean(Option.get("no-final-save").valueStr())
+        self.progress = not parseBoolean(Option.get("no-progress").valueStr())
         if Option.assigned("no-task-limit"):
             self.task_limit = 0
         else:
@@ -2477,11 +2633,12 @@ class Options:
         self.setup = Option.get("setup").valueStr()
         self.user_setup = Option.assigned("setup")
         self.cluster = "SLURM"
-        if bool(Option.get("SLURM").valueStr()):
+        if parseBoolean(Option.get("SLURM").valueStr()):
             self.cluster = "SLURM" # Deliberate reimplementation in case default changes
-        elif bool(Option.get("SGE").valueStr()):
+        elif parseBoolean(Option.get("SGE").valueStr()):
             self.cluster = "SGE"
-        self.split_reps = bool(Option.get("split-reps").valueStr())
+        self.sep_expt_dirs = parseBoolean(Option.get("sep-expt-dirs").valueStr())
+        self.split_reps = parseBoolean(Option.get("split-reps").valueStr())
         self.threads = int(Option.get("threads").valueStr())
         self.gc = int(Option.get("threads-gc").valueStr())
         self.nlogov = Option.get("version").valueStr()
@@ -2497,17 +2654,24 @@ class Options:
 
         self.wait = int(Option.get("wait").valueStr())
         self.name = Option.get("mc-expt").valueStr()
-        self.zip = bool(Option.get("zip").valueStr())
+        self.zip = parseBoolean(Option.get("zip").valueStr())
         if Option.assigned("no-zip"):
-            self.zip = bool(Option.get("no-zip").valueStr())
+            self.zip = parseBoolean(Option.get("no-zip").valueStr())
 
         # Parse command-line arguments
 
         self.model = args[i]
+        self.model_file = self.model
+        self.model_dir = "."
+        if "/" in self.model:
+            self.model_dir = self.model[:(rfind(self.model, "/") - 1)]
+            self.model = self.model[(rfind(self.model, "/") + 1)]
         i += 1
         self.cmd = args[i]
         i += 1
         self.cmd_args = []
+        self.arg_xml = ""
+        self.arg_sh = ""
         while i < len(args):
             self.cmd_args.append(args[i])
             i += 1
@@ -2522,6 +2686,7 @@ class Options:
             elif len(self.cmd_args) == 0:
                 sys.stderr.write("split needs at least one argument\n")
                 sys.exit(1)
+            self.arg_xml = self.cmd_args[-1]
         elif self.cmd == "splitq":
             if len(self.cmd_args) == 1:
                 self.cmd_args.append("{stem}.xml".format(stem = self.cmd_args[0]))
@@ -2531,12 +2696,15 @@ class Options:
             elif len(self.cmd_args) == 0:
                 sys.stderr.write("splitq needs at least one argument\n")
                 sys.exit(1)
+            self.arg_sh = self.cmd_args[-1]
+            self.arg_xml = self.cmd_args[-2]
         elif self.cmd == "monte":
             if len(self.cmd_args) == 3:
                 self.cmd_args.append("{stem}.xml".format(stem = self.cmd_args[0][0:-4]))
             elif len(self.cmd_args) < 3:
                 sys.stderr.write("monte needs at least three arguments\n")
                 sys.exit(1)
+            self.arg_xml = self.cmd_args[-1]
         elif self.cmd == "montq":
             if len(self.cmd_args) == 3:
                 self.cmd_args.append("{stem}.xml".format(stem = self.cmd_args[0][0:-4]))
@@ -2546,9 +2714,19 @@ class Options:
             elif len(self.cmd_args) < 3:
                 sys.stderr.write("montq needs at least three arguments\n")
                 sys.exit(1)
+            self.arg_sh = self.cmd_args[-1]
+            self.arg_xml = self.cmd_args[-2]
         elif self.cmd != "__GUI__":
             sys.stderr.write("Command \"{cmd}\" not recognized\n".format(cmd = self.cmd))
             sys.exit(1)
+
+        self.dup_links = []
+        if self.dup_setup == True:
+            self.sep_expt_dirs = True
+            self.get_dup_links(self.model, add = Option.get("dup-setup-add").valueStr(), 
+                omit = Option.get("dup-setup-omit").valueStr())
+
+        Option.printSummary(self.cmd) 
 
     @staticmethod
     def help():
@@ -2630,8 +2808,8 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
     def args(self):
         return self.cmd_args
 
-    def makeBatch(self, xml, expts):
-        self.batch = Batch(self, xml, expts)
+    def makeBatch(self, expts):
+        self.batch = Batch(self, expts)
 
     @staticmethod
     def cmpver(v1, v2):
@@ -2723,29 +2901,29 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         parnames = model_obj.getParameterNames()
         if self.rng_param != "" and not self.rng_param in parnames:
             sys.stderr.write("RNG parameter \"{n}\" not in NetLogo file \"{m}\"\n".format(
-                n = self.rng_param, m = self.model
+                n = self.rng_param, m = self.model_file
             ))
             sys.exit(1)
         if self.rng_switch != "" and not self.rng_switch in parnames:
             sys.stderr.write("RNG switch on parameter \"{n}\" not in NetLogo file \"{m}\"\n".format(
-                n = self.rng_switch, m = self.model
+                n = self.rng_switch, m = self.model_file
             ))
             sys.exit(1)
         if self.rng_no_switch != "" and not self.rng_switch in parnames:
             sys.stderr.write("RNG switch off parameter \"{n}\" not in NetLogo file \"{m}\"\n".format(
-                n = self.rng_no_switch, m = self.model
+                n = self.rng_no_switch, m = self.model_file
             ))
             sys.exit(1)
         for dirp in self.dir_params:
             if not dirp in parnames:
                 sys.stderr.write("Output directory parameter \"{n}\" not in NetLogo file \"{m}\"\n".format(
-                    n = dirp, m = self.model
+                    n = dirp, m = self.model_file
                 ))
                 sys.exit(1)
         for filep in self.file_params:
             if not filep in parnames:
                 sys.stderr.write("Output file parameter \"{n}\" not in NetLogo file \"{m}\"\n".format(
-                    n = filep, m = self.model
+                    n = filep, m = self.model_file
                 ))
                 sys.exit(1)
 
@@ -2780,6 +2958,42 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
 
         return uname
 
+    def get_dup_links(self, model, add = [], omit = []):
+        dir = self.model_dir
+        
+        if add == "":
+            add = []
+        if omit == "":
+            omit = []
+        self.dup_links = [model]
+        if len(add) == 0:
+            omit.append(self.arg_xml)
+            omit.append(self.arg_sh)
+            if self.nanny and dir == ".":
+                omit.append(dir + "log")
+            if self.err != "/dev/null" and dir == ".":
+                omit.append(self.err)
+            if self.out != "/dev/null" and dir == ".":
+                omit.append(self.out)
+            if self.dir != ".":
+                omit.append(self.dir)
+            if self.xml_dir != ".":
+                omit.append(self.xml_dir)
+
+        try:
+            for file_name in os.listdir(dir):
+                if len(add) > 0:
+                    if file_name in add:
+                        self.dup_links.append(file_name)
+                elif len(omit) > 0:
+                    if file_name not in omit and file_name[0] != ".":
+                        self.dup_links.append(file_name)
+                else:
+                    raise NLogoError("There should be something to omit at least", bug = True)
+
+        except IOError as e:
+            raise NLogoError("Error listing the contents of directory \"" + dir + "\"", cause = e)
+
 
 ################################################################################
 # Main
@@ -2798,7 +3012,7 @@ if __name__ == "__main__":
     model = NetlogoModel.read(opts)
     if(model == False):
         sys.exit(1)
-    print("Read \"{nlogo}\"".format(nlogo = opts.model))
+    print("Read \"{nlogo}\" from directory \"{dir}\"".format(nlogo = opts.model, dir = opts.model_dir))
 
     args = opts.args()
 
@@ -2810,7 +3024,7 @@ if __name__ == "__main__":
     elif opts.cmd == 'split' or opts.cmd == 'splitq':
         expts = model.splitExperiment(args[0], args[1], opts)
         if opts.cmd == 'splitq' and len(expts) > 0:
-            opts.makeBatch(args[1], args[0], expts)
+            opts.makeBatch(expts)
             opts.saveScript(args[2])
             print("Job submission script written to \"{sh}\"".format(sh = args[2]))
             print("Submit the script with \"{sub}\"".format(
@@ -2819,12 +3033,11 @@ if __name__ == "__main__":
         samples = Sample.read(args[0], model.getParameters())
         expt = Experiment.fromWidgets(model.widgets, int(args[1]), opts)
         expts = expt.withNSamples(samples, int(args[2]), opts)
-        Experiment.writeExperiments(args[3], expts, opts)
-        print("Experiments written to \"{xml}\"".format(xml = args[3]))
+        Experiment.writeExperiments(expts, opts)
         if opts.cmd == 'montq':
-            opts.makeBatch(args[3], opts.name, expts)
+            opts.makeBatch(expts)
             opts.saveScript(args[4])
-            print("Job submission script written to \"{sh}\"".format(sh = args[4]))
+            print("Job submission script written to \"{sh}\"".format(sh = opts.arg_sh))
             print("Submit the script with \"{sub}\"".format(
                 sub = opts.runCmd(args[4], len(expts))))
 
