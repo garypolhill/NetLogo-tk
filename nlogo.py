@@ -973,7 +973,7 @@ class Experiment:
         if not opts.split_reps:
             n /= self.repetitions
 
-        use_metrics = [m for m in metrics]
+        use_metrics = [m for m in self.metrics]
         if opts.rng_param != "" and not opts.rng_param in use_metrics:
             use_metrics.append(opts.rng_param)
 
@@ -998,10 +998,10 @@ class Experiment:
                 enumerated_values.append(EnumeratedValue(opts.rng_no_switch, "false"))
 
 
-            reps = self.repetitions
+            reps = int(self.repetitions)
             if opts.split_reps:
                 reps = 1
-            for j in range(self.repetitions / reps):
+            for j in range(int(self.repetitions / reps)):
                 new_name = "%s-%0*d" % (self.name, Batch.n_digits(n), i)
 
                 # Set each directory parameter
@@ -1756,7 +1756,7 @@ class NetlogoModel:
                     print("\t\tmetric {mid}: \"{mstr}\"".format(mid = m, mstr = metric))
                     m += 1
 
-    def splitExperiment(self, name, file_name, opts):
+    def splitExperiment(self, name, opts):
         """
         Split an experiment, saving the runs to the XML file, and returning the
         number of experiments created.
@@ -1771,7 +1771,7 @@ class NetlogoModel:
         else:
             expt = self.expts[name]
             splitted = expt.uniqueSettings(opts)
-            Experiment.writeExperiments(file_name, splitted, opts)
+            Experiment.writeExperiments(splitted, opts)
             return splitted
 
     def getVersion(self):
@@ -1798,7 +1798,11 @@ class Sample:
         self.param = param
         self.datatype = datatype
         # TO-DO: update this to handle 'minimum' == 'one-of'
-        if isinstance(self.param, Chooser):
+        if isinstance(self.param, Chooser) and minimum == "one-of":
+            choices = maximum.split("|")
+            for choice in choices:
+                None
+        elif isinstance(self.param, Chooser):
 
             if minimum in param.choices:
                 self.minimum = param.choices.index(minimum)
@@ -3022,13 +3026,13 @@ if __name__ == "__main__":
     elif opts.cmd == 'expts':
         model.printExperiments()
     elif opts.cmd == 'split' or opts.cmd == 'splitq':
-        expts = model.splitExperiment(args[0], args[1], opts)
+        expts = model.splitExperiment(args[0], opts)
         if opts.cmd == 'splitq' and len(expts) > 0:
             opts.makeBatch(expts)
             opts.saveScript(args[2])
             print("Job submission script written to \"{sh}\"".format(sh = args[2]))
             print("Submit the script with \"{sub}\"".format(
-                sub = opts.runCmd(args[2], nexpts)))
+                sub = opts.runCmd(args[2], len(expts))))
     elif opts.cmd == 'monte' or opts.cmd == 'montq':
         samples = Sample.read(args[0], model.getParameters())
         expt = Experiment.fromWidgets(model.widgets, int(args[1]), opts)
