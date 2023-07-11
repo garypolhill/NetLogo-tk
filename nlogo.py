@@ -1810,13 +1810,13 @@ class Sample:
                 self.minimum = param.choices.index('"' + minimum + '"')
             elif minimum == "NA":
                 self.minimum = "NA"
-            elif not isinstance(minimum, int) or minimum < 0 or minimum >= len(param.choices):
+            elif int(minimum) < 0 or int(minimum) >= len(param.choices):
                 sys.stderr.write("Error: minimum {value} is not an option for chooser {var} ({opts})\n".format(
                     value = minimum, var = param.varname,
                     opts = ", ".join([str(x) for x in param.choices])))
                 sys.exit(1)
             else:
-                self.minimum = minimum
+                self.minimum = int(minimum)
 
             if maximum in param.choices:
                 self.maximum = param.choices.index(maximum)
@@ -1824,25 +1824,28 @@ class Sample:
                 self.maximum = param.choices.index('"' + maximum + '"')
             elif maximum == "NA":
                 self.maximum = "NA"
-            elif not isinstance(maximum, int) or maximum < 0 or maximum >= len(param.choices):
+            elif int(maximum) < 0 or int(maximum) >= len(param.choices):
                 sys.stderr.write("Error: maximum {value} is not an option for chooser {var} ({opts})\n".format(
                     value = maximum, var = param.varname,
                     opts = ", ".join([str(x) for x in param.choices])))
                 sys.exit(1)
             else:
-                self.maximum = maximum
+                self.maximum = int(maximum)
 
             if setting in param.choices:
                 self.setting = param.choices.index(setting)
             elif ('"' + setting + '"') in param.choices:
                 self.setting = param.choices.index('"' + setting + '"')
-            elif not isinstance(setting, int) or setting < 0 or setting >= len(param.choices):
+            elif int(setting) < 0 or int(setting) >= len(param.choices):
+                sys.stderr.write("Fuck you " + str(setting) + " arse " + str(len(param.choices)) + "\n")
+                sys.stderr.write( str(isinstance(setting, int)) + "\n")
+                sys.stderr.write( "Chrit " + str(type(setting)) + "\n")
                 sys.stderr.write("Error: setting {value} is not an option for chooser {var} ({opts})\n".format(
-                    value = setting, var = param.varname,
+                    value = int(setting), var = param.varname,
                     opts = ", ".join([str(x) for x in param.choices])))
                 sys.exit(1)
             else:
-                self.setting = setting
+                self.setting = int(setting)
         else:
             self.setting = setting
             self.minimum = minimum
