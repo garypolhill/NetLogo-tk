@@ -607,6 +607,35 @@ class Chooser(Parameter):
     def getConstraintSet(self):
         return self.choices
 
+    def getOptionIndex(self, option):
+        if option in self.choices:
+            return self.choices.index(option)
+        elif ('"' + option + '"') in self.choices:
+            return self.choices.index('"' + minimum + '"')
+        elif option == "NA":
+            return "NA"
+        else:
+            opt = option
+            if not isinstance(option, int):
+                if not option.isdigit():
+                    sys.stderr.write("Error: \"{value}\" is not an option for chooser {var} ({opts})\n".format(
+                        value = option, var = self.varname,
+                        opts = ", ".join([str(x) for x in self.choices])))
+                opt = int(option)
+                    
+            if opt < 0 or opt >= len(self.choices):
+                sys.stderr.write("Error: index {value} is not in the range of index values for chooser {var} ([0, {max}[)\n".format(
+                    value = opt, var = self.varname, max = len(self.choices)
+                ))
+                sys.exit(1)
+            return opt
+
+    def getOptionValue(self, ix):
+        if isinstance(ix, int) and ix >= 0 and ix < len(self.choices):
+            return self.choices[ix]
+        else:
+            sys.stderr.write("BUG! getOptionValue() sent \"{value}\" -- should be integer in range [0, {max}[\n".format(value = ix, max = len(self.choices)))
+
 
 ################################################################################
 # Slider Class
@@ -1172,6 +1201,8 @@ class Experiment:
         """
         param = {}
         for s in samples:
+            s.newSample()
+        for s in samples:
             name = s.param.variable()
             value = s.sample()
             param[name] = value
@@ -1310,21 +1341,22 @@ class Experiment:
 
         for v in self.steppedValueSet:
             fp.write(u"    <steppedValueSet variable=\"%s\" first=\"%f\" step=\"%f\" last=\"%f\"/>\n"
-                     %(v.variable, v.first, v.step, v.last))
+                     %(self.escape(v.variable), v.first, v.step, v.last))
 
         for v in self.enumeratedValueSet:
-            fp.write(u"    <enumeratedValueSet variable=\"%s\">\n" % v.variable)
+            fp.write(u"    <enumeratedValueSet variable=\"%s\">\n" % self.escape(v.variable))
             for w in v.values:
-                fp.write(u"      <value value=\"%s\"/>\n" % str(w).replace('"', '&quot;'))
+                fp.write(u"      <value value=\"%s\"/>\n" % self.escape(w))
             fp.write(u"    </enumeratedValueSet>\n")
 
         fp.write(u"  </experiment>\n")
 
-    def escape(self, str):
+    def escape(self, entry):
         """
         Escape ampersands, quotes and inequalities when writing XML data
         """
-        return str.replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
+        string = str(entry)
+        return string.replace('&', '&amp;').replace('"', '&quot;').replace('<', '&lt;').replace('>', '&gt;')
 
     def writeExperiment(self, file_name):
         """
@@ -1794,62 +1826,44 @@ class Sample:
     parameters from a model. The CSV file can be edited by hand to indicate
     the parameters that are to be set in a Monte Carlo experiment.
     """
-    def __init__(self, param, datatype, setting, minimum, maximum):
+
+    def __init__(self, param, datatype, setting, minimum, maximum, params):
         self.param = param
         self.datatype = datatype
-        # TO-DO: update this to handle 'minimum' == 'one-of'
-        if isinstance(self.param, Chooser) and minimum == "one-of":
+        self.options = []
+        self.one_of = False
+        self.min_is_param = False
+        self.max_is_param = False
+        self.sampled = False
+        self.last_sample = None
+        self.tagged = False
+
+        if minimum == "one-of":
             choices = maximum.split("|")
             for choice in choices:
-                None
+                if isinstance(self.param, Chooser):
+                    self.options.append(self.param.getOptionValue(self.param.getOptionIndex(choice)))
+                else:
+                    self.options.append(choice)
+            self.minimum = 0
+            self.maximum = len(self.options)
+            self.setting = "NA"
+            self.one_of = True
+
         elif isinstance(self.param, Chooser):
-
-            if minimum in param.choices:
-                self.minimum = param.choices.index(minimum)
-            elif ('"' + minimum + '"') in param.choices:
-                self.minimum = param.choices.index('"' + minimum + '"')
-            elif minimum == "NA":
-                self.minimum = "NA"
-            elif int(minimum) < 0 or int(minimum) >= len(param.choices):
-                sys.stderr.write("Error: minimum {value} is not an option for chooser {var} ({opts})\n".format(
-                    value = minimum, var = param.varname,
-                    opts = ", ".join([str(x) for x in param.choices])))
-                sys.exit(1)
-            else:
-                self.minimum = int(minimum)
-
-            if maximum in param.choices:
-                self.maximum = param.choices.index(maximum)
-            elif ('"' + maximum + '"') in param.choices:
-                self.maximum = param.choices.index('"' + maximum + '"')
-            elif maximum == "NA":
-                self.maximum = "NA"
-            elif int(maximum) < 0 or int(maximum) >= len(param.choices):
-                sys.stderr.write("Error: maximum {value} is not an option for chooser {var} ({opts})\n".format(
-                    value = maximum, var = param.varname,
-                    opts = ", ".join([str(x) for x in param.choices])))
-                sys.exit(1)
-            else:
-                self.maximum = int(maximum)
-
-            if setting in param.choices:
-                self.setting = param.choices.index(setting)
-            elif ('"' + setting + '"') in param.choices:
-                self.setting = param.choices.index('"' + setting + '"')
-            elif int(setting) < 0 or int(setting) >= len(param.choices):
-                sys.stderr.write("Fuck you " + str(setting) + " arse " + str(len(param.choices)) + "\n")
-                sys.stderr.write( str(isinstance(setting, int)) + "\n")
-                sys.stderr.write( "Chrit " + str(type(setting)) + "\n")
-                sys.stderr.write("Error: setting {value} is not an option for chooser {var} ({opts})\n".format(
-                    value = int(setting), var = param.varname,
-                    opts = ", ".join([str(x) for x in param.choices])))
-                sys.exit(1)
-            else:
-                self.setting = int(setting)
+            self.minimum = self.param.getOptionIndex(minimum)
+            self.maximum = self.param.getOptionIndex(maximum)
+            self.setting = self.param.getOptionIndex(setting)
         else:
             self.setting = setting
             self.minimum = minimum
+            if minimum in params:
+                self.minimum = params[minimum]
+                self.min_is_param = True
             self.maximum = maximum
+            if maximum in params:
+                self.maximum = params[maximum]
+                self.max_is_param = True
 
     @staticmethod
     def read(file_name, params):
@@ -1865,17 +1879,77 @@ class Sample:
         header = fp.readline().strip()
 
         samples = []
+        sample_map = {}
         for line in fp:
             line = line.strip()
             words = line.split(",")
             if words[0] in params:
                 param = params[words[0]]
-                samples.append(Sample(param, words[1], words[2], words[3], words[4]))
+                new_sample = Sample(param, words[1], words[2], words[3], words[4], params)
+                samples.append(new_sample)
+                sample_map[words[0]] = new_sample
             else:
                 sys.stderr.write("Warning: parameter %s ignored as it is not in the model\n" % words[0])
 
         fp.close()
+
+        for sample in samples:
+            if sample.min_is_param and sample.minimum.varname in sample_map:
+                sample.minimum = sample_map[sample.minimum.varname]
+            if sample.max_is_param and sample.maximum.varname in sample_map:
+                sample.maximum = sample_map[sample.maximum.varname]
+
         return samples
+
+    def minimumValue(self):
+        self.tagged = True
+        retval = None
+        if self.minimum == "NA":
+            retval = "NA"
+        elif self.one_of:
+            retval = 0
+        elif isinstance(self.param, Chooser):
+            retval = self.minimum
+        elif self.min_is_param:
+            if isinstance(self.minimum, Parameter):
+                retval = self.minimum.value
+            elif isinstance(self.minimum, Sample):
+                if self.minimum.sampled:
+                    retval = self.minimum.last_sample
+                else:
+                    if self.minimum.tagged:
+                        sys.stderr.write("Error! parameter %s has circular references to other parameters\n" % self.param.varname)
+                        sys.exit(1)
+                    retval = self.minimum.minimumValue()
+        else:
+            retval = self.minimum
+        self.tagged = False
+        return retval
+
+    def maximumValue(self):
+        self.tagged = True
+        retval = None
+        if self.maximum == "NA":
+            retval = "NA"
+        elif self.one_of:
+            retval = len(self.options)
+        elif isinstance(self.param, Chooser):
+            retval = self.maximum
+        elif self.max_is_param:
+            if isinstance(self.maximum, Parameter):
+                retval = self.maximum.value
+            elif isinstance(self.maximum, Sample):
+                if self.maximum.sampled:
+                    retval = self.maximum.last_sample
+                else:
+                    if self.maximum.tagged:
+                        sys.stderr.write("Error! parameter %s has circular references to other parameters\n" % self.param.varname)
+                        sys.exit(1)
+                    retval = self.maximum.maximumValue()
+        else:
+            retval = self.maximum
+        self.tagged = False
+        return retval
 
     def sample(self):
         """
@@ -1883,59 +1957,80 @@ class Sample:
         """
         if self.minimum == "NA" or self.maximum == "NA":
             if isinstance(self.param, Chooser):
-                return self.param.choices[self.setting]
+                self.last_sample = self.param.getOptionValue(self.setting)
             else:
-                return self.setting
+                self.last_sample = self.setting
+        elif self.one_of:
+            rint = rnd.randint(0, len(self.options))
+            self.last_sample = self.options[rint]
         elif self.minimum == self.maximum:
             if isinstance(self.param, Chooser):
-                return self.param.choices[int(self.maximum)]
+                self.last_sample = self.param.getOptionValue(self.maximum)
+            elif isinstance(self.minimum, Parameter):
+                self.last_sample = self.minimum.value
             else:
-                return self.minimum
+                self.last_sample = self.minimum
         else:
             if self.datatype == "integer":
-                rint = rnd.randint(int(self.minimum), int(self.maximum))
+                minm = int(self.minimumValue())
+                maxm = int(self.maximumValue())
+                rint = rnd.randint(minm, maxm)
                 if isinstance(self.param, Chooser):
-                    return self.param.choices[rint]
+                    self.last_sample = self.param.getOptionValue(rint)
                 else:
-                    return rint
+                    self.last_sample = rint
             elif self.datatype == "numeric":
-                return rnd.uniform(float(self.minimum), float(self.maximum))
+                minm = float(self.minimumValue())
+                maxm = float(self.maximumValue())
+                self.last_sample = rnd.uniform(minm, maxm)
             elif self.datatype == "boolean":
-                return (rnd.random() < 0.5)
+                self.last_sample = (rnd.random() < 0.5)
             else:
-                return self.setting
+                self.last_sample = self.setting
+
+        self.sampled = True
+        return self.last_sample
+
+    def newSample(self):
+        self.sampled = False
 
     def regularSample(self, step, step_size):
         """
         Make a regular sample of the parameter
         """
         if self.minimum == "NA" or self.maximum == "NA":
-            return self.setting
+            self.last_sample = self.setting
+        elif self.one_of:
+            choice = step * step_size
+            self.last_sample = self.options[choice]
         elif self.minimum == self.maximum:
             if isinstance(self.param, Chooser):
-                return self.param.choices[int(self.maximum)]
+                self.last_sample = self.param.getOptionValue(self.maximum)
+            elif isinstance(self.minimum, Parameter):
+                self.last_sample = self.minimum.value
             else:
-                return self.minimum
+                self.last_sample = self.minimum
         else:
             choice = step * step_size
             if self.datatype == "integer":
                 choice = int(choice)
                 if isinstance(self.param, Chooser):
-                    return self.param.choices[choice]
+                    self.last_sample = self.param.getOptionValue(choice)
+                elif isinstance(self.minimum, Parameter):
+                    self.last_sample = int(self.minimum.value) + choice
                 else:
-                    return int(self.minimum) + choice
+                    self.last_sample = int(self.minimum) + choice
             elif self.datatype == "numeric":
-                return self.minimum + choice
+                if instance(self.minimum, Parameter):
+                    self.last_sample = float(self.minimum.value) + choice
+                else:
+                    self.last_sample = self.minimum + choice
             elif self.datatype == "boolean":
-                return ((i % 2) == 1)
+                self.last_sample = ((step % 2) == 1)
             else:
-                return self.setting
+                self.last_sample = self.setting
+        return self.last_sample
 
-    def setSample(self):
-        """
-        Set the parameter to a random sample value
-        """
-        self.param.setValue(self.sample())
 
 ################################################################################
 # Batch Class
