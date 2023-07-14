@@ -1272,7 +1272,7 @@ class Experiment:
         written = []
         if opts.progress:
             for expt in expts:
-                expt.addProgress()
+                expt.addProgress(opts)
 
         if len(expts) <= opts.max_batch:
             try:
@@ -1406,7 +1406,7 @@ class Experiment:
         else:
             self.setup = str(setup)
 
-    def addProgress(self):
+    def addProgress(self, opts):
         """
         Add code to the 'go' part of the experiment that writes the number of
         ticks to a file with a timestamp so that the progress can be inspected.
@@ -1434,7 +1434,7 @@ class Experiment:
         """
         if not self.addedProgress:
             f = "behaviorspace-experiment-name \"-\" behaviorspace-run-number \"-prog.txt\""
-            if self.results != ".":
+            if self.results != "." and not opts.dup_setup:
                 f = "\"{dir}/\" ".format(dir = self.results) + f
             f = "(word " + f + ")"
             self.setup += ("\n{c}\nfile-open {f}\n".format(c = self.prog_comment,
