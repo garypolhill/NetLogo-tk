@@ -2141,7 +2141,7 @@ BDIR="{x}-$BATCH_ID"
     def dupSetupSh(self, opts):
         sh = "test -d \"$RDIR/$EXPT_ID\" || mkdir -p \"$RDIR/$EXPT_ID\"\n"
         for ln in opts.dup_links:
-            s = ln
+            s = "`pwd`/" + ln
             d = "$RDIR/$EXPT_ID/" + ln[(1 + ln.rfind("/")):]
             sh += "if [[ ! -e \"{dest}\" ]]\nthen\n  if [[ -d \"{src}\" ]]\n  then\n    ln -s \"{src}\" \"{dest}\"\n  else\n    ln \"{src}\" \"{dest}\"\n  fi\nfi\n".format(src = s, dest = d)
         return sh
