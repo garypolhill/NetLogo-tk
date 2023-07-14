@@ -2143,7 +2143,7 @@ BDIR="{x}-$BATCH_ID"
         for ln in opts.dup_links:
             s = ln
             d = "$RDIR/$EXPT_ID/" + ln[(1 + ln.rfind("/")):]
-            sh += "test -e \"{dest}\" || ln \"{src}\" \"{dest}\"\n".format(src = s, dest = d)
+            sh += "if [[ ! -e \"{dest}\" ]]\nthen\n  if [[ -d \"{src}\" ]]\n  then\n    ln -s \"{src}\" \"{dest}\"\n  else\n    ln \"{src}\" \"{dest}\"\n  fi\nfi\n".format(src = s, dest = d)
         return sh
 
     def getExptIDsh(self):
