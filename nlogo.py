@@ -2266,7 +2266,14 @@ class Script:
             )
         fp.write(self.batch.getTaskIDSh("$SLURM_ARRAY_TASK_ID"))
 
-        self.saveCommon(fp, "srun " + self.opts.getNanny())
+        if self.opts.unique_home:
+            fp.write(u"tmphome=`mktemp -d \"/var/tmp/{name}-HOME-$TASK_NO-XXXXXX\"`\n")
+        submit_cmd = "srun "
+        if self.opts.unique_home:
+            submit_cmd = "HOME=\"$tmphome\" $SHELL <<TMPHOMESH\nsrun "
+        self.saveCommon(fp, submit_cmd + self.opts.getNanny())
+        if self.opts.unique_home:
+            fp.write(u"\nTMPHOMESH\nsleep 5 # Paranoia\n/usr/bin/rm -rf \"$tmphome\"\n")
         fp.close()
         os.chmod(file_name, 0o755)
 
@@ -2389,6 +2396,10 @@ class Option:
         self.default = default
         self.args = args
         self.n_args = len(args)
+        if self.n_args == 0 and not once:
+            sys.stderr.write("BUG! Option {o} is a flag that can be set more than once".format(o = opt))
+            sys.exit(1)
+
         self.cmd = cmd
         self.short_name = short_name
         self.once = once
@@ -2401,6 +2412,34 @@ class Option:
     def assigned(opt):
         if "--" + opt in Option.options:
             return len(Option.options["--" + opt].values) > 0
+        else:
+            sys.stderr.write("BUG! Option {o} not in dict".format(o = opt))
+            sys.exit(1)
+
+    @staticmethod
+    def getFlag(opt):
+        if "--" + opt in Option.options:
+            the_opt = Option.options["--" + opt]
+            if the_opt.n_args != 0:
+                sys.stderr.write("BUG! Option {o} is not a flag".format(o = opt))
+                sys.exit(1)
+
+            if len(the_opt.values) == 1:
+                # The user has assigned the flag a value
+                return parseBoolean(the_opt.valueStr())
+            else:
+                # The user has not assigned the flag a value...
+                if len(the_opt.mutex) == 1:
+                    # ... check if the mutually-exclusive flag has
+                    # been assigned a value ...
+                    mutex_opt_str = "--" + the_opt.mutex[0]
+                    if mutex_opt_str in Option.options:
+                        mutex_opt = Option.options[mutex_opt_str]
+                        if len(mutex_opt.values) > 0:
+                            # The user has assigned the mutex flag a value
+                            return not parseBoolean(mutex_opt.valueStr())
+                # ... before (effectively) returning the default
+                return parseBoolean(the_opt.valueStr())
         else:
             sys.stderr.write("BUG! Option {o} not in dict".format(o = opt))
             sys.exit(1)
@@ -2541,7 +2580,7 @@ class Option:
     def initOptions():
         # short_name taken records: # means option taken
         # abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ
-        #  # ######### ###  ## ### ### # ### # # ###  ##     #   
+        #  # ######### ###  ###### ### # ### # # ###  ###    #   
         Option("add-outdir", "add the output directory to the beginning of " +
             "any parameter given with --file-param", False, cmd = Option.exptCmds(),
              prereq = ["file-param"])
@@ -2623,6 +2662,8 @@ class Option:
             cmd = Option.exptCmds(), short_name = "P")
         Option("no-task-limit", "your cluster has no limit to the number of tasks in a job " +
             "submission script", False, cmd = Option.scriptCmds(), mutex = ["task-limit"])
+        Option("no-unique-home", "do not use a unique $HOME for each run", False,
+            mutex = ["unique-home"], short_name = "U", cmd = Option.scriptCmds())
         Option("no-zip", "don't gzip the output file and table CSV file after the " +
             "NetLogo run has finished", True, cmd = Option.scriptCmds(), short_name = "z",
             mutex = ["zip"])
@@ -2666,13 +2707,15 @@ class Option:
             cmd = Option.scriptCmds(), short_name = "t")
         Option("threads-gc", "use n garbage collection threads (>= 2)", 3,
             args = ["n"], cmd = Option.scriptCmds(), short_name = "T")
+        Option("unique-home", "use a unique home directory for each run", True,
+            mutex = ["no-unique-home"], short_name = "u", cmd = Option.scriptCmds())
         Option("version", "NetLogo version to use (e.g. 6.2.1)", "6.2.2",
             args = ["version"], cmd = Option.scriptCmds(), short_name = "v")
         Option("wait", "(SLURM only) queue n seconds from sbatch submission", 0,
             args = ["n"], cmd = Option.scriptCmds(), short_name = "w")
         Option("zip", "do gzip the output file and table CSV file after the NetLogo run " +
             "has finished (and save space)", False, cmd = Option.scriptCmds(),
-            short_name = "Z", mutex = "no-zip")
+            short_name = "Z", mutex = ["no-zip"])
 
 ################################################################################
 # Options Class
@@ -2694,12 +2737,12 @@ class Options:
 
         # Assign options from parsed command-line options/defaults
 
-        self.add_outdir = parseBoolean(Option.get("add-outdir").valueStr())
+        self.add_outdir = Option.getFlag("add-outdir")
         self.max_batch = int(Option.get("batch-max").valueStr())
         self.batch_size = int(Option.get("batch-size").valueStr())
         self.dir = Option.get("dir").valueStr()
         self.dir_params = Option.get("dir-param").valueStr()
-        self.dup_setup = parseBoolean(Option.get("dup-setup").valueStr())
+        self.dup_setup = Option.getFlag("dup-setup")
         self.err = Option.get("error").valueStr()
         self.xml_dir = Option.get("expt-dir").valueStr()
         self.file_params = Option.get("file-param").valueStr()
@@ -2707,8 +2750,8 @@ class Options:
         self.gigaram = int(Option.get("gibibytes").valueStr())
         self.go = Option.get("go").valueStr()
         self.user_go = Option.assigned("go")
-        self.limit_ram = not parseBoolean(Option.get("no-limit-ram").valueStr())
-        if parseBoolean(Option.get("headless").valueStr()):
+        self.limit_ram = not Option.getFlag("no-limit-ram")
+        if Option.getFlag("headless"):
             self.nlogo_invoke = "netlogo-headless.sh"
         else:
             self.nlogo_invoke = Option.get("invoke-netlogo").valueStr()
@@ -2716,12 +2759,9 @@ class Options:
         self.jobname = Option.get("job-name").valueStr()
         self.days = float(Option.get("kill-days").valueStr())
         self.concur = int(Option.get("limit-concurrent").valueStr())
-        if Option.assigned("nanny") or not Option.assigned("no-nanny"):
-            self.nanny = parseBoolean(Option.get("nanny").valueStr())
-        else:
-            self.nanny = not parseBoolean(Option.get("no-nanny").valueStr())
-        self.save_csv = not parseBoolean(Option.get("no-final-save").valueStr())
-        self.progress = not parseBoolean(Option.get("no-progress").valueStr())
+        self.nanny = Option.getFlag("nanny")
+        self.save_csv = not Option.getFlag("no-final-save")
+        self.progress = not Option.getFlag("no-progress")
         if Option.assigned("no-task-limit"):
             self.task_limit = 0
         else:
@@ -2739,8 +2779,8 @@ class Options:
             self.cluster = "SLURM" # Deliberate reimplementation in case default changes
         elif parseBoolean(Option.get("SGE").valueStr()):
             self.cluster = "SGE"
-        self.sep_expt_dirs = parseBoolean(Option.get("sep-expt-dirs").valueStr())
-        self.split_reps = parseBoolean(Option.get("split-reps").valueStr())
+        self.sep_expt_dirs = Option.getFlag("sep-expt-dirs")
+        self.split_reps = Option.getFlag("split-reps")
         self.threads = int(Option.get("threads").valueStr())
         self.gc = int(Option.get("threads-gc").valueStr())
         self.nlogov = Option.get("version").valueStr()
@@ -2753,12 +2793,10 @@ class Options:
             else:
                 self.nlogo_invoke = "netlogo-headless-{gc}gc-{gig}Gi.sh".format(
                     gc = self.gc, gig = self.gigaram)
-
+        self.unique_home = Option.getFlag("unique-home")
         self.wait = int(Option.get("wait").valueStr())
         self.name = Option.get("mc-expt").valueStr()
-        self.zip = parseBoolean(Option.get("zip").valueStr())
-        if Option.assigned("no-zip"):
-            self.zip = parseBoolean(Option.get("no-zip").valueStr())
+        self.zip = Option.getFlag("zip")
 
         # Parse command-line arguments
 
