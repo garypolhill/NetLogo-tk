@@ -2273,7 +2273,7 @@ class Script:
             submit_cmd = "HOME=\"$tmphome\" $SHELL <<TMPHOMESH\nsrun "
         self.saveCommon(fp, submit_cmd + self.opts.getNanny())
         if self.opts.unique_home:
-            fp.write(u"\nTMPHOMESH\nsleep 5 # Paranoia\n/usr/bin/rm -rf \"$tmphome\"\n")
+            fp.write(u"\nTMPHOMESH\nsleep 5 # Paranoia\n/bin/rm -rf \"$tmphome\"\n")
         fp.close()
         os.chmod(file_name, 0o755)
 
