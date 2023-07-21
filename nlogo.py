@@ -2115,7 +2115,7 @@ class Batch:
 TASK_NO={var}
 if [[ "$#" -gt 0 ]]
 then
-  TASK_ID=$(expr $TASK_NO + $1)
+  TASK_NO=$(expr $TASK_NO + $1)
 fi
 if [[ TASK_NO -gt {n} ]]
 then
