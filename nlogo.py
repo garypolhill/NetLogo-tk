@@ -1542,9 +1542,11 @@ file-close
             code = metric.updateCode
             if code.startswith('"'):
                 code = code[1:-1].replace('\\"', '"')
-            if code.startswith('plot '):
+            if code.lower().startswith('plot '):
                 code = code[5:]
-            if not code.startswith('histogram '):
+            if code.lower().startswith('plot(') and code.endswith(')'):
+                code = code[5:-1]
+            if not (code.lower().startswith('histogram ') or code.lower().startswith('histogram(')):
                 self.metrics.append(code)
                 legend = metric.display
                 if legend[0] == '\"':
@@ -1829,7 +1831,7 @@ class Sample:
 
     def __init__(self, param, datatype, setting, minimum, maximum, params):
         self.param = param
-        self.datatype = datatype
+        self.datatype = datatype.lower()
         self.options = []
         self.one_of = False
         self.min_is_param = False
@@ -1837,6 +1839,11 @@ class Sample:
         self.sampled = False
         self.last_sample = None
         self.tagged = False
+
+        if self.datatype == "boolean":
+            setting = setting.lower()
+            minimum = minimum.lower()
+            maximum = maximum.lower()
 
         if minimum == "one-of":
             choices = maximum.split("|")
@@ -1876,15 +1883,36 @@ class Sample:
             sys.stderr.write("Error opening file %s: %s\n"%(file_name, e.strerror))
             return False
 
+        # Read and check the header line. If the user has edited the CSV file in a locale
+        # in which a semicolon is the CSV separator, then the software they edited the CSV
+        # file in may have saved the file using semicolons even if commas were used in
+        # the file they opened. It's then also possible that any decimal numbers are
+        # written using commas instead of dots as the decimal point.
         header = fp.readline().strip()
+        sep = ","
+        if header != "parameter,type,setting,minimum,maximum":
+            if header == "parameter;type;setting;minimum;maximum":
+                sep = ";"
+            else:
+                sys.stderr.write("File %s is not a valid parameter sample file: first "
+                    + "line should be \"parameter,type,setting,minimum,maximum\""
+                    + "(or with semicolons instead of commas)\n")
+                return False
 
+        # Read the samples
         samples = []
         sample_map = {}
         for line in fp:
             line = line.strip()
-            words = line.split(",")
+            words = line.split(sep)
             if words[0] in params:
                 param = params[words[0]]
+                if sep == ";" and words[1] == "numeric":
+                    # Handle numbers being written using "," as the decimal 'point'
+                    # if a semicolon is the 'C'SV separator.
+                    words[2] = words[2].replace(",", ".")
+                    words[3] = words[3].replace(",", ".")
+                    words[4] = words[4].replace(",", ".")
                 new_sample = Sample(param, words[1], words[2], words[3], words[4], params)
                 samples.append(new_sample)
                 sample_map[words[0]] = new_sample
