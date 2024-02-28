@@ -2373,7 +2373,7 @@ CSV="$RDIR/$EXPT_ID-table.csv"
         subscr = "qsub" if self.opts.cluster == "SGE" else "sbatch"
         proj = "-P " if self.opts.cluster == "SGE" else "--wckey="
         prid = "$1" if self.opts.project == "" else self.opts.project
-        fp.write(u"  {sub} {pj}{pd} {s} `expr $n \\* {n}`\n".format(
+        fp.write(u"  {sub} {pj}{pd} \"{s}\" `expr $n \\* {n}`\n".format(
             sub = subscr, pj = proj, pd = prid, s = batch_script,
             n = self.opts.task_limit
         ))
