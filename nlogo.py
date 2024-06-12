@@ -1659,6 +1659,8 @@ class NetlogoModel:
 
         version = NetlogoModel.readSection(fp)
         version = version[0:-1]
+        if version[0:8] == "NetLogo ":
+            version = version[8:]
 
         preview = NetlogoModel.readSection(fp)
 
@@ -2737,7 +2739,8 @@ class Option:
             args = ["n"], cmd = Option.scriptCmds(), short_name = "T")
         Option("unique-home", "use a unique home directory for each run", True,
             mutex = ["no-unique-home"], short_name = "u", cmd = Option.scriptCmds())
-        Option("version", "NetLogo version to use (e.g. 6.2.1)", "6.2.2",
+        Option("version", "NetLogo version to use (e.g. 6.2.1, or \"model\" to use " +
+            "whatever is in the NetLogo model file)", "model",
             args = ["version"], cmd = Option.scriptCmds(), short_name = "v")
         Option("wait", "(SLURM only) queue n seconds from sbatch submission", 0,
             args = ["n"], cmd = Option.scriptCmds(), short_name = "w")
@@ -2812,15 +2815,6 @@ class Options:
         self.threads = int(Option.get("threads").valueStr())
         self.gc = int(Option.get("threads-gc").valueStr())
         self.nlogov = Option.get("version").valueStr()
-        if not Option.assigned("find-netlogo"):
-            self.nlogo_home = self.nlogo_home + "-" + self.nlogov
-        if not Option.assigned("invoke-netlogo") and not Option.assigned("headless"):
-            if Options.cmpver(self.nlogov, "6.2.1") < 0:
-                self.nlogo_invoke = "netlogo-headless-{cores}cpu-{gig}g.sh".format(
-                    cores = self.cores(), gig = self.gigaram)
-            else:
-                self.nlogo_invoke = "netlogo-headless-{gc}gc-{gig}Gi.sh".format(
-                    gc = self.gc, gig = self.gigaram)
         self.unique_home = Option.getFlag("unique-home")
         self.wait = int(Option.get("wait").valueStr())
         self.name = Option.get("mc-expt").valueStr()
@@ -3066,6 +3060,17 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
 
     def setNetLogoModel(self, model_obj):
         self.netlogo_object = model_obj
+        if self.nlogov == "model":
+            self.nlogov = model_obj.getVersion()
+        if not Option.assigned("find-netlogo"):
+            self.nlogo_home = self.nlogo_home + "-" + self.nlogov
+        if not Option.assigned("invoke-netlogo") and not Option.assigned("headless"):
+            if Options.cmpver(self.nlogov, "6.2.1") < 0:
+                self.nlogo_invoke = "netlogo-headless-{cores}cpu-{gig}g.sh".format(
+                    cores = self.cores(), gig = self.gigaram)
+            else:
+                self.nlogo_invoke = "netlogo-headless-{gc}gc-{gig}Gi.sh".format(
+                    gc = self.gc, gig = self.gigaram)
         parnames = model_obj.getParameterNames()
         if self.rng_param != "" and not self.rng_param in parnames:
             sys.stderr.write("RNG parameter \"{n}\" not in NetLogo file \"{m}\"\n".format(
