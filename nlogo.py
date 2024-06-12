@@ -611,7 +611,7 @@ class Chooser(Parameter):
         if option in self.choices:
             return self.choices.index(option)
         elif ('"' + option + '"') in self.choices:
-            return self.choices.index('"' + minimum + '"')
+            return self.choices.index('"' + option + '"')
         elif option == "NA":
             return "NA"
         else:
@@ -2379,9 +2379,9 @@ CSV="$RDIR/$EXPT_ID-table.csv"
         ))
         fp.write(u"  echo \"Submitted {expt} $n\"\n".format(expt = self.name))
         fp.write(u"  sleep 600 # wait 10 minutes to make sure job in\n")
-        qlist = "qstat" if self.opts.cluster == "SGE" else "squeue"
-        fp.write(u"  while [[ \"`{q} | grep $me | wc -l`\" -gt 0 ]]\n".format(
-            q = qlist
+        qlist = "qstat -u $me" if self.opts.cluster == "SGE" else "squeue -u $me"
+        fp.write(u"  while [[ \"`{q} | grep {n} | wc -l`\" -gt 0 ]]\n".format(
+            q = qlist, n = self.name
         ))
         fp.write(u"  do\n")
         fp.write(u"    sleep \"`expr $RANDOM % 1800`\" # random time < 0.5h\n")
