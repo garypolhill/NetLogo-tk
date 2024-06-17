@@ -2381,7 +2381,7 @@ CSV="$RDIR/$EXPT_ID-table.csv"
         ))
         fp.write(u"  echo \"Submitted {expt} $n\"\n".format(expt = self.name))
         fp.write(u"  sleep 600 # wait 10 minutes to make sure job in\n")
-        qlist = "qstat -u $me" if self.opts.cluster == "SGE" else "squeue -u $me"
+        qlist = "qstat -u $me" if self.opts.cluster == "SGE" else "squeue -u $me -n {name}".format(name = self.name)
         fp.write(u"  while [[ \"`{q} | grep {n} | wc -l`\" -gt 0 ]]\n".format(
             q = qlist, n = self.name
         ))
