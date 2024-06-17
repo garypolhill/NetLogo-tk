@@ -3143,6 +3143,10 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         self.getUniqueFilenameFile(parname, name, run, nruns, self.getSetting(parname))
 
     def getUniqueFilenameFile(self, parname, name, run, nruns, fname):
+        if fname[0] == "\"":
+            fname = fname[1:]
+        if fname[-1] == "\"":
+            fname = fname[:-1]
         uname = ""
         nz = 1 + int(math.log10(nruns))
 
@@ -3164,7 +3168,7 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
             else:
                 uname += "%s-%0*d" % (basen, nz, run)
 
-        return uname
+        return "\"" + uname + "\""
 
     def get_dup_links(self, model, add = [], omit = []):
         dir = self.model_dir
