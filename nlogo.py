@@ -988,10 +988,12 @@ class Experiment:
 
         counters = {}
         maxes = {}
+        all_enum_names = {}
         for param in self.steppedValueSet:
             counters[param.variable] = 0
             maxes[param.variable] = param.getNValues()
         for param in self.enumeratedValueSet:
+            all_enum_names[param.variable] = param
             if not opts.isParamSet(param.variable):
                 counters[param.variable] = 0
                 maxes[param.variable] = param.getNValues()
@@ -1038,8 +1040,13 @@ class Experiment:
                     enumerated_values.append(EnumeratedValue(param,
                         Batch.outdir(opts, self.name, i, n)))
                 for param in opts.file_params:
-                    enumerated_values.append(EnumeratedValue(param,
-                        opts.getUniqueFilename(param, self.name, i, n)))
+                    if param in all_enum_names:
+                        old_fname = all_enum_names[param].getValues()[0]
+                        enumerated_values.append(EnumeratedValue(param,
+                            opts.getUniqueFilenameFile(param, self.name, i, n, old_fname)))
+                    else:
+                        enumerated_values.append(EnumeratedValue(param,
+                            opts.getUniqueFilename(param, self.name, i, n)))
 
                 # Add the experiment
                 experiments.append(Experiment(new_name, self.setup, self.go,
@@ -1224,7 +1231,16 @@ class Experiment:
             for param in opts.dir_params:
                 expt.addEnumeratedValue(param, Batch.outdir(opts, self.name, i + 1, n))
             for param in opts.file_params:
-                expt.addEnumeratedValue(param, opts.getUniqueFilename(param, self.name, i + 1, n))
+                old_fnames = self.getEnumeratedValues(param)
+                expt_fnames = expt.getEnumeratedValues(param)
+                if len(old_fnames) == 0 and len(expt_fnames) == 0:
+                    expt.setEnumeratedValue(param, opts.getUniqueFilename(param, self.name, i + 1, n))
+                elif len(expt_fnames) > 0:
+                    expt.setEnumeratedValue(param,
+                        opts.getUniqueFilenameFile(param, self.name, i + 1, n, expt_fnames[0]))
+                else:
+                    expt.setEnumeratedValue(param,
+                        opts.getUniqueFilenameFile(param, self.name, i + 1, n, old_fnames[0]))
             expt.results = Batch.outdir(opts, self.name, i + 1, n)
             expts.append(expt)
         return expts
@@ -1588,6 +1604,23 @@ file-close
         Add an enumerated value to the experiment
         """
         self.enumeratedValueSet.append(EnumeratedValue(str(variable), values))
+
+    def getEnumeratedValues(self, variable):
+        enum_vals = []
+        for param in self.enumeratedValueSet:
+            if param.variable == variable:
+                for val in param.getValues():
+                    enum_vals.append(val)
+        return enum_vals
+
+    def setEnumeratedValue(self, variable, values):
+        setValue = False
+        for i in range(len(self.enumeratedValueSet)):
+            if self.enumeratedValueSet[i].variable == variable:
+                self.enumeratedValueSet[i] = EnumeratedValue(str(variable), values)
+                setValue = True
+        if not setValue:
+            self.addEnumeratedValue(variable, values)
 
 
 ################################################################################
@@ -3107,15 +3140,17 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
         return self.netlogo_object.getSetting(parname)
 
     def getUniqueFilename(self, parname, name, run, nruns):
-        fname = self.getSetting(parname)
+        self.getUniqueFilenameFile(parname, name, run, nruns, self.getSetting(parname))
+
+    def getUniqueFilenameFile(self, parname, name, run, nruns, fname):
         uname = ""
-        nz = 1 + int(math.log10(nruns - 1))
+        nz = 1 + int(math.log10(nruns))
 
         if self.add_outdir or len(self.dir_params) == 0:
             uname += Batch.outdir(self, name, run, nruns) + "/"
 
         if fname == "" or fname == "0" or fname == 0 or fname == "NA":
-            uname += "%s-%s-%*d" % (name, parname, nz, run)
+            uname += "%s-%s-%0*d" % (name, parname, nz, run)
         else:
             basen = fname
             if "/" in fname:
@@ -3125,9 +3160,9 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
             if "." in basen:
                 pref = basen[:basen.rfind(".")]
                 suff = basen[basen.rfind("."):]
-                uname += "%s-%*d.%s" % (pref, nz, run, suff)
+                uname += "%s-%0*d%s" % (pref, nz, run, suff)
             else:
-                uname += "%s-%*d" % (basen, nz, run)
+                uname += "%s-%0*d" % (basen, nz, run)
 
         return uname
 
