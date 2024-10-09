@@ -142,16 +142,7 @@ class NLogoError(Exception):
     for the user, and an indication of whether this is a bug. Using these
     exceptions allows clean recovery when in GUI mode.
     """
-    def __init__(self, message, cause = None, recovery = None, bug = False):
-        Exception.__init__(message)
-        self.message = message
-        self.cause = cause
-        self.recoverable = False
-        self.recoveryMessage = "Cannot recover from this error"
-        if not recovery is None:
-            self.recoverable = True
-            self.recoveryMessage = recovery
-        self.bug = bug
+    pass
 
 
 ################################################################################
@@ -2124,27 +2115,29 @@ class Batch:
         # Check that the array of experiments has a predictable nomenclature
         # that includes all the numbers from 1 to n_expt inclusive with no
         # duplicates
-        self.expt_name = expts[1].name
+        self.expt_name = expts[0].name
         expt_names = {}
         self.n_runs = 0
-        for expt in expts:
-            if expt.name in expt_names:
-                raise NLogoError("Duplicate experiment name \"{name}\"".format(name = expt.name),
-                    bug = True)
-            expt_names[expt.name] = 1
-            self.expt_name = os.path.commonprefix([expt.name, self.expt_name])
-            self.n_runs += expt.getNRuns()
 
-        if self.expt_name == "":
-            raise NLogoError("No common experiment name nomenclature", bug = True)
+        if self.n_expt > 1:
+            for expt in expts:
+                if expt.name in expt_names:
+                    raise NLogoError("BUG: Duplicate experiment name \"{name}\"".format(name = expt.name))
+                expt_names[expt.name] = 1
+                self.expt_name = os.path.commonprefix([expt.name, self.expt_name])
+                self.n_runs += expt.getNRuns()
 
-        for i in range(self.n_expt):
-            id = "%0*d"%(self.n_expt_digits, i + 1)
-            expected_name = "{x}{n}".format(x = self.expt_name, n = id)
-            if not expected_name in expt_names:
-                raise NLogoError(
-                    "Not found expected experiment name \"{name}\"".format(name = expected_name),
-                    bug = True)
+            if self.expt_name == "":
+                raise NLogoError("BUG: No common experiment name nomenclature")
+
+            for i in range(self.n_expt):
+                id = "%0*d"%(self.n_expt_digits, i + 1)
+                expected_name = "{x}-{n}".format(x = self.expt_name, n = id)
+                if not expected_name in expt_names:
+                    raise NLogoError(
+                        "BUG: Not found expected experiment name \"{name}\"".format(name = expected_name))
+        else:
+            self.n_runs = expts[0].getNRuns()
 
         self.script = Script(opts, self.n_expt, self)
 
@@ -2210,9 +2203,12 @@ BDIR="{x}-$BATCH_ID"
         return sh
 
     def getExptIDsh(self):
-        return u'''
+        if self.n_expt > 1:
+            return u'''
 printf -v EXPT_ID "{name}%0{n}d" $TASK_NO
 '''.format(name = self.expt_name, n = self.n_expt_digits)
+        else:
+            return u"EXPT_ID={name}\n".format(name = self.expt_name)
 
     def saveSGE(self, file_name):
         self.script.saveSGE(file_name)
@@ -2261,7 +2257,7 @@ class Script:
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
-            raise NLogoError("Error creating file \"{name}\"".format(file_name), cause = e)
+            raise NLogoError("Error creating file \"{name}\": {error}".format(name = file_name, error = e.message))
         fp.write(u'''#!/bin/sh
 #$ -cwd
 #$ -t 1-{ntask}
@@ -2302,7 +2298,7 @@ class Script:
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
-            raise NLogoError("Error creating file \"{name}\"".format(file_name), cause = e)
+            raise NLogoError("Error creating file \"{name}\": {error}".format(name = file_name, error = e.message))
         fp.write(u"#!/bin/sh\n")
         if self.opts.wait == 0:
             fp.write(u"#SBATCH --begin=now\n")
@@ -2397,7 +2393,7 @@ CSV="$RDIR/$EXPT_ID-table.csv"
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
-            raise NLogoError("Error creating file \"{name}\"}".format(name = file_name), cause = e)
+            raise NLogoError("Error creating file \"{name}\": {error}}".format(name = file_name, error = e.message))
         fp.write(u"#!/bin/sh\n")
         fp.write(u"me=`whoami`\n")
 
@@ -2430,7 +2426,7 @@ CSV="$RDIR/$EXPT_ID-table.csv"
         try:
             fp = io.open(file_name, "w")
         except IOError as e:
-            raise NLogoError("Error creating progress script \"{name}\"".format(name = file_name), cause = e)
+            raise NLogoError("Error creating progress script \"{name}\": {error}".format(name = file_name, error = e.message))
         
         fp.write('''
 #!/usr/bin/perl
@@ -2545,11 +2541,18 @@ class Option:
                 sys.stderr.write("You cannot use option {o} if you've already used option {p}\n".format(
                     o = self.long_name, p = opt))
                 sys.exit(1)
+            else:
+                mut = Option.get(opt)
+                if self.n_args == 0 and mut.n_args == 0:
+                    booval = value if type(value) == bool else parseBoolean(value)
+                    mut.values.append(not booval)
+
         for opt in self.prereq:
             if not Option.assigned(opt):
                 sys.stderr.write("Option {o} requires a value to have been set for option {p}\n".format(
                     o = self.long_name, p = opt))
                 sys.exit(1)
+
         self.values.append(value)
 
     def valueStr(self):
@@ -2839,10 +2842,10 @@ class Options:
         self.setup = Option.get("setup").valueStr()
         self.user_setup = Option.assigned("setup")
         self.cluster = "SLURM"
-        if parseBoolean(Option.get("SLURM").valueStr()):
-            self.cluster = "SLURM" # Deliberate reimplementation in case default changes
-        elif parseBoolean(Option.get("SGE").valueStr()):
+        if parseBoolean(Option.get("SGE").valueStr()):
             self.cluster = "SGE"
+        elif parseBoolean(Option.get("SLURM").valueStr()):
+            self.cluster = "SLURM" # Deliberate reimplementation in case default changes
         self.sep_expt_dirs = Option.getFlag("sep-expt-dirs")
         self.split_reps = Option.getFlag("split-reps")
         self.threads = int(Option.get("threads").valueStr())
@@ -3201,10 +3204,10 @@ the CPU cycles in, you'll need to do this on the command line with qsub -P
                     if file_name not in omit and file_name[0] != ".":
                         self.dup_links.append(file_name)
                 else:
-                    raise NLogoError("There should be something to omit at least", bug = True)
+                    raise NLogoError("BUG: There should be something to omit at least")
 
         except IOError as e:
-            raise NLogoError("Error listing the contents of directory \"" + dir + "\"", cause = e)
+            raise NLogoError("Error listing the contents of directory \"" + dir + "\": {error}".format(error = e.message))
 
 
 ################################################################################
