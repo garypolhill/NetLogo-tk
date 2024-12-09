@@ -932,7 +932,8 @@ class Experiment:
     def __init__(self, name, setup, go, final, time_limit, exit_condition,
                  metrics, stepped_values = [], enumerated_values = [],
                  repetitions = 1, sequential_run_order = True,
-                 run_metrics_every_step = True, results = ".", metric_labels = []):
+                 run_metrics_every_step = True, results = ".", metric_labels = [],
+                 post_run = ""):
         self.name = name
         self.setup = setup
         self.go = go
@@ -949,6 +950,7 @@ class Experiment:
         self.repetitions = int(repetitions)
         self.sequentialRunOrder = sequential_run_order
         self.runMetricsEveryStep = run_metrics_every_step
+        self.postRun = post_run
         self.results = results # Directory where any output should be
         self.addedProgress = (self.prog_comment in setup)
         self.addedFinalParametrics = (self.param_comment in final)
@@ -1043,7 +1045,7 @@ class Experiment:
                 experiments.append(Experiment(new_name, self.setup, self.go,
                     self.final, self.timeLimit, self.exitCondition, use_metrics,
                     [], enumerated_values, reps, self.sequentialRunOrder,
-                    self.runMetricsEveryStep, Batch.outdir(opts, self.name, i, n)))
+                    self.runMetricsEveryStep, Batch.outdir(opts, self.name, i, n), post_run = self.postRun))
                 i += 1
 
             for var in counters.keys():
@@ -1094,6 +1096,7 @@ class Experiment:
                                             "no \"name\" attribute for experiment")
             setup = ""
             go = ""
+            post_run = ""
             final = ""
             time_limit = None
             exit_condition = None
@@ -1113,6 +1116,8 @@ class Experiment:
                     if time_limit == None:
                         raise BehaviorSpaceXMLError(file_name, "steps",
                                                "no \"steps\" attribute for timeLimit")
+                elif elem.tag == "postRun":
+                    post_run = elem.text
                 elif elem.tag == "exitCondition":
                     exit_condition = elem.text
                 elif elem.tag == "metric":
@@ -1127,7 +1132,7 @@ class Experiment:
             experiments.append(Experiment(name, setup, go, final, time_limit,
                                exit_condition, metrics, stepped_values,
                                enumerated_values, repetitions,
-                               sequential_run_order, run_metrics_every_step))
+                               sequential_run_order, run_metrics_every_step, post_run = post_run))
         return experiments
 
     @staticmethod
@@ -1190,7 +1195,7 @@ class Experiment:
         return Experiment(self.name, self.setup, self.go, self.final, self.timeLimit,
                           self.exitCondition, self.metrics, [], new_enum_set,
                           self.repetitions, self.sequentialRunOrder,
-                          self.runMetricsEveryStep, metric_labels = self.metricLabels)
+                          self.runMetricsEveryStep, metric_labels = self.metricLabels, post_run = self.postRun)
 
     def withSamples(self, samples):
         """
@@ -1339,6 +1344,8 @@ class Experiment:
             fp.write(u"    <go>%s</go>\n" % self.escape(self.go))
         if self.final != "":
             fp.write(u"    <final>\n%s\n    </final>\n" % self.escape(self.final))
+        if self.postRun != "":
+            fp.write(u"    <postRun>%s</postRun>" % self.escape(self.postRun))
         if self.timeLimit != None:
             fp.write(u"    <timeLimit steps=\"%d\"/>\n" % math.ceil(self.timeLimit))
         if self.exitCondition != None:
