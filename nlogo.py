@@ -823,7 +823,7 @@ class InputBox(Parameter):
 # BehaviorSpaceXMLError Class
 ################################################################################
 
-class BahaviorSpaceXMLError(Exception):
+class BehaviorSpaceXMLError(Exception):
     """
     Exception class for when there is unexpected content in the BehaviorSpace
     section of a NetLogo file.
