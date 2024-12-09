@@ -1111,7 +1111,7 @@ class Experiment:
                 elif elem.tag == "timeLimit":
                     time_limit = float(elem.get("steps"))
                     if time_limit == None:
-                        raise BehaviorSpaceXML(file_name, "steps",
+                        raise BehaviorSpaceXMLError(file_name, "steps",
                                                "no \"steps\" attribute for timeLimit")
                 elif elem.tag == "exitCondition":
                     exit_condition = elem.text
@@ -1122,7 +1122,7 @@ class Experiment:
                 elif elem.tag == "enumeratedValueSet":
                     enumerated_values.append(EnumeratedValue.fromXML(elem, file_name))
                 else:
-                    raise BehaviorSpaceXML(file_name, "experiment sub-element", elem.tag)
+                    raise BehaviorSpaceXMLError(file_name, "experiment sub-element", elem.tag)
 
             experiments.append(Experiment(name, setup, go, final, time_limit,
                                exit_condition, metrics, stepped_values,
