@@ -1345,7 +1345,7 @@ class Experiment:
         if self.final != "":
             fp.write(u"    <final>\n%s\n    </final>\n" % self.escape(self.final))
         if self.postRun != "":
-            fp.write(u"    <postRun>%s</postRun>" % self.escape(self.postRun))
+            fp.write(u"    <postRun>%s</postRun>\n" % self.escape(self.postRun))
         if self.timeLimit != None:
             fp.write(u"    <timeLimit steps=\"%d\"/>\n" % math.ceil(self.timeLimit))
         if self.exitCondition != None:
@@ -2139,7 +2139,7 @@ class Batch:
 
             for i in range(self.n_expt):
                 id = "%0*d"%(self.n_expt_digits, i + 1)
-                expected_name = "{x}-{n}".format(x = self.expt_name, n = id)
+                expected_name = "{x}{n}".format(x = self.expt_name, n = id)
                 if not expected_name in expt_names:
                     raise NLogoError(
                         "BUG: Not found expected experiment name \"{name}\"".format(name = expected_name))
