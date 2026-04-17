@@ -427,7 +427,11 @@ class Plot(Output):
         if fp.readline().strip() == "PENS":
             penstr = fp.readline().strip()
             while penstr != '':
-                plot.addPen(Pen.parse(penstr, display))
+                pen = Pen.parse(penstr, display)
+                if pen.updateCode != '""':
+                    sys.stderr.write("PEN " + str(penstr) + " with codes = " + str(codes) + " and display " + str(display) + "\n")
+                    sys.stderr.write("PEN Code " + str(pen.updateCode) + "\n")
+                    plot.addPen(Pen.parse(penstr, display))
                 penstr = fp.readline().strip()
 
         return plot
@@ -478,6 +482,11 @@ class Pen:
             setup_code = setup_code + " " + words[i]
             i = i + 1
         update_code = " ".join(words[i:])
+        if update_code.startswith('"if'):
+            sys.stderr.write("PEN PRE PICKLING " + str(update_code) + "\n")
+            update_code = re.sub(r'"if.*\[', '"', update_code, flags=re.IGNORECASE)
+            update_code = re.sub(r'\].*"$', '"', update_code, flags=re.IGNORECASE)
+            sys.stderr.write("PEN POST PICKLING " + str(update_code) + "\n")
         return Pen(display, interval, mode, colour, in_legend, setup_code, update_code, plot_name)
 
 ################################################################################

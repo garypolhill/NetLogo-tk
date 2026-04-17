@@ -1,0 +1,2 @@
+parameter,type,setting,minimum,maximum
+list-select,integer,0,0,5

@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE experiments SYSTEM "behaviorspace.dtd">
+<experiments>
+  <experiment name="x-1" repetitions="1" sequentialRunOrder="true" runMetricsEveryStep="true">
+    <setup>
+; nlogo.py added this code to save progress
+file-open (word behaviorspace-experiment-name &quot;-&quot; behaviorspace-run-number &quot;-prog.txt&quot;)
+file-print (word &quot;0 / 1: &quot; date-and-time)
+file-close</setup>
+    <go>
+file-open (word behaviorspace-experiment-name &quot;-&quot; behaviorspace-run-number &quot;-prog.txt&quot;)
+file-print (word ticks &quot; / 1: &quot; date-and-time)
+file-close</go>
+    <final>
+
+; nlogo.py added this code to save parameters and metrics
+ifelse file-exists? &quot;x-1.csv&quot; [
+    file-open &quot;x-1.csv&quot;
+] [
+    file-open &quot;x-1.csv&quot;
+    file-print &quot;list-select,plot 1.conditional-pen&quot;
+]
+file-print (word list-select &quot;,&quot; ( plot ticks ))
+file-close
+; end of code to save parameters and metrics
+            
+    </final>
+    <timeLimit steps="1"/>
+    <metric> plot ticks </metric>
+    <enumeratedValueSet variable="list-select">
+      <value value="[2.985"/>
+    </enumeratedValueSet>
+  </experiment>
+</experiments>
