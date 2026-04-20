@@ -429,8 +429,6 @@ class Plot(Output):
             while penstr != '':
                 pen = Pen.parse(penstr, display)
                 if pen.updateCode != '""':
-                    sys.stderr.write("PEN " + str(penstr) + " with codes = " + str(codes) + " and display " + str(display) + "\n")
-                    sys.stderr.write("PEN Code " + str(pen.updateCode) + "\n")
                     plot.addPen(Pen.parse(penstr, display))
                 penstr = fp.readline().strip()
 
@@ -483,10 +481,8 @@ class Pen:
             i = i + 1
         update_code = " ".join(words[i:])
         if update_code.startswith('"if'):
-            sys.stderr.write("PEN PRE PICKLING " + str(update_code) + "\n")
-            update_code = re.sub(r'"if.*\[', '"', update_code, flags=re.IGNORECASE)
-            update_code = re.sub(r'\].*"$', '"', update_code, flags=re.IGNORECASE)
-            sys.stderr.write("PEN POST PICKLING " + str(update_code) + "\n")
+            update_code = re.sub(r'"if.*?\[', '"', update_code, flags=re.IGNORECASE)
+            update_code = re.sub(r'\][^\]]*"$', '"', update_code, flags=re.IGNORECASE)
         return Pen(display, interval, mode, colour, in_legend, setup_code, update_code, plot_name)
 
 ################################################################################
@@ -2274,7 +2270,7 @@ class Script:
             fp = io.open(file_name, "w")
         except IOError as e:
             raise NLogoError("Error creating file \"{name}\": {error}".format(name = file_name, error = e.message))
-        fp.write(u'''#!/bin/sh
+        fp.write(u'''#!/usr/bin/env bash
 #$ -cwd
 #$ -t 1-{ntask}
 #$ -pe smp {svr_cores}
@@ -2315,7 +2311,7 @@ class Script:
             fp = io.open(file_name, "w")
         except IOError as e:
             raise NLogoError("Error creating file \"{name}\": {error}".format(name = file_name, error = e.message))
-        fp.write(u"#!/bin/sh\n")
+        fp.write(u"#!/usr/bin/env bash\n")
         if self.opts.wait == 0:
             fp.write(u"#SBATCH --begin=now\n")
         else:
@@ -2428,7 +2424,7 @@ CSV="$RDIR/$EXPT_ID-table.csv"
             fp = io.open(file_name, "w")
         except IOError as e:
             raise NLogoError("Error creating file \"{name}\": {error}}".format(name = file_name, error = e.message))
-        fp.write(u"#!/bin/sh\n")
+        fp.write(u"#!/usr/bin/env bash\n")
         fp.write(u"me=`whoami`\n")
 
         nsleep = math.ceil(self.n_expt / self.opts.task_limit)
